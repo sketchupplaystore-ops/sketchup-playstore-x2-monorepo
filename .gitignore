@@ -1,0 +1,23 @@
+# Node
+node_modules/
+.next/
+out/
+
+# PNPM
+pnpm-lock.yaml
+
+# PHP/Laravel
+vendor/
+storage/*.key
+storage/logs/*
+.env
+.env.*
+
+# System
+.DS_Store
+.idea/
+.vscode/
+
+# Build artifacts
+coverage/
+dist/

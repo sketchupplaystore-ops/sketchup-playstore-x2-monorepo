@@ -1,0 +1,133 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Aws\S3\S3Client;
+use Aws\Exception\AwsException;
+use Illuminate\Http\Request;
+
+class FilesController extends Controller
+{
+    private function s3(): S3Client
+    {
+        return new S3Client([
+            'version'                 => 'latest',
+            'region'                  => config('filesystems.disks.s3.region', 'us-central-1'),
+            'credentials'             => [
+                'key'    => config('filesystems.disks.s3.key'),
+                'secret' => config('filesystems.disks.s3.secret'),
+            ],
+            'endpoint'                => config('filesystems.disks.s3.endpoint', 'https://s3.us-central-1.wasabisys.com'),
+            'use_path_style_endpoint' => (bool) config('filesystems.disks.s3.use_path_style_endpoint', true),
+        ]);
+    }
+
+    // GET /api/files?prefix=uploads/
+    public function index(Request $request)
+    {
+        $prefix = $request->query('prefix', 'uploads/');
+        try {
+            $result = $this->s3()->listObjectsV2([
+                'Bucket' => config('filesystems.disks.s3.bucket'),
+                'Prefix' => $prefix,
+                'MaxKeys' => 1000,
+            ]);
+
+            $items = [];
+            foreach ($result['Contents'] ?? [] as $obj) {
+                $items[] = [
+                    'key'          => $obj['Key'],
+                    'size'         => $obj['Size'] ?? 0,
+                    'lastModified' => isset($obj['LastModified']) ? $obj['LastModified']->format(DATE_ISO8601) : null,
+                ];
+            }
+
+            return response()->json(['ok' => true, 'count' => count($items), 'items' => $items]);
+        } catch (AwsException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getAwsErrorMessage() ?: $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    // POST /api/files/url { key, expires }
+    public function url(Request $request)
+    {
+        $data = $request->validate([
+            'key'     => 'required|string',
+            'expires' => 'nullable|integer',
+        ]);
+
+        $expires = $data['expires'] ?? 600;
+
+        try {
+            $cmd = $this->s3()->getCommand('GetObject', [
+                'Bucket' => config('filesystems.disks.s3.bucket'),
+                'Key'    => $data['key'],
+            ]);
+            $request = $this->s3()->createPresignedRequest($cmd, '+' . $expires . ' seconds');
+            $url = (string) $request->getUri();
+
+            return response()->json(['ok' => true, 'url' => $url]);
+        } catch (AwsException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getAwsErrorMessage() ?: $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    // DELETE /api/files?key=uploads/foo.skp
+    public function destroy(Request $request)
+    {
+        $key = $request->query('key');
+        if (!$key) {
+            return response()->json(['ok' => false, 'error' => 'key required'], 422);
+        }
+
+        try {
+            $this->s3()->deleteObject([
+                'Bucket' => config('filesystems.disks.s3.bucket'),
+                'Key'    => $key,
+            ]);
+
+            return response()->json(['ok' => true]);
+        } catch (AwsException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getAwsErrorMessage() ?: $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    // POST /api/files/rename { fromKey, toKey }
+    public function rename(Request $request)
+    {
+        $data = $request->validate([
+            'fromKey' => 'required|string',
+            'toKey'   => 'required|string',
+        ]);
+
+        try {
+            $s3 = $this->s3();
+
+            // Copy
+            $s3->copyObject([
+                'Bucket'            => config('filesystems.disks.s3.bucket'),
+                'Key'               => $data['toKey'],
+                'CopySource'        => config('filesystems.disks.s3.bucket') . '/' . ltrim($data['fromKey'], '/'),
+                'MetadataDirective' => 'COPY',
+            ]);
+
+            // Delete old
+            $s3->deleteObject([
+                'Bucket' => config('filesystems.disks.s3.bucket'),
+                'Key'    => $data['fromKey'],
+            ]);
+
+            return response()->json(['ok' => true]);
+        } catch (AwsException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getAwsErrorMessage() ?: $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+}

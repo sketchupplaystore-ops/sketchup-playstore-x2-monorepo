@@ -1,0 +1,84 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with: { version: 9 }
+
+      - name: Build web
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Pack web
+        run: |
+          tar -czf web.tgz -C web .next package.json pnpm-lock.yaml public next.config.js || true
+
+      - name: Pack api (if present)
+        run: |
+          if [ -f api/composer.json ]; then
+            tar -czf api.tgz -C api . artisan composer.json composer.lock app bootstrap config database public resources routes
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles
+          path: |
+            web.tgz
+            api.tgz
+          if-no-files-found: ignore
+
+      - name: Copy bundles to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "web.tgz,api.tgz"
+          target: "/var/www/sketchupplaystore/deploy"
+
+      - name: Finalize on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            # Web
+            cd /var/www/sketchupplaystore
+            if [ -f deploy/web.tgz ]; then
+              tar -xzf deploy/web.tgz -C web
+              cd web
+              pnpm install --prod --frozen-lockfile || npm ci --omit=dev
+              pm2 reload /var/www/sketchupplaystore/ops/server/pm2/ecosystem.config.js --only sketch-w || pm2 restart sketch-w || true
+            fi
+
+            # API
+            if [ -f /var/www/sketchupplaystore/deploy/api.tgz ]; then
+              cd /var/www/sketchupplaystore
+              tar -xzf deploy/api.tgz -C api
+              cd api
+              composer install --no-dev --prefer-dist --no-interaction
+              php artisan migrate --force || true
+              php artisan optimize
+              systemctl reload php8.3-fpm || true
+            fi
+
+            systemctl reload nginx || true

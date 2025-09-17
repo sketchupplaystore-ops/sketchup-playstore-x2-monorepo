@@ -1,0 +1,24 @@
+# Repo guardrails for AI changes
+
+## Architecture
+- Monorepo with Next.js in /web and Laravel in /api.
+- Frontend talks to API at ${NEXT_PUBLIC_API_BASE}. Do not hardcode URLs.
+- File storage is Wasabi via the Laravel API (presigned URLs).
+
+## Rules
+- Keep existing routing and env usage.
+- When editing /web: prefer TypeScript and server actions where already used. Do not convert Pages↔App Router unless file already in that router.
+- When editing /api: follow Laravel conventions; never commit secrets; migrations must be idempotent and additive.
+- Update or add tests when changing behavior.
+- Avoid large rewrites; refactor in small steps with clear diffs.
+
+## Security
+- CORS must allow only https://web.sketchupplaystore.com.
+- Client never sees raw Wasabi keys. Only presigned URLs from API.
+- Authentication must use the existing scheme (cookies or Bearer). Do not invent new auth without owner approval.
+
+## Output expectations (for every change)
+- A short summary of intent.
+- Files touched with rationale.
+- Any commands to run (builds, migrations).
+- A quick rollback note.
