@@ -178,7 +178,7 @@ interface PreviewImagesSectionProps {
   milestoneId?: number | string;
 }
 
-function ProjectFiles({ projectId, milestoneId }: ProjectFilesProps) {
+function ProjectFiles({ projectId: _projectId, milestoneId }: ProjectFilesProps) {
   const { data: files = [], isLoading, isError } = useMilestoneFiles(milestoneId);
   
   if (isLoading) {
@@ -229,7 +229,7 @@ function ProjectFiles({ projectId, milestoneId }: ProjectFilesProps) {
   );
 }
 
-function PreviewImagesSection({ projectId, milestoneId }: PreviewImagesSectionProps) {
+function PreviewImagesSection({ projectId: _projectId, milestoneId }: PreviewImagesSectionProps) {
   const { data: files = [], isLoading, isError } = useMilestoneFiles(milestoneId);
   
   // Filter for image files only
@@ -264,7 +264,7 @@ function PreviewImagesSection({ projectId, milestoneId }: PreviewImagesSectionPr
     <div className="mb-4">
       <h4 className="text-sm font-medium text-slate-700 mb-3">Project Previews</h4>
       <div className="grid grid-cols-4 gap-3">
-        {imageFiles.map((file, index) => (
+        {imageFiles.map((file, _index) => (
           <div key={file.id} className="relative group">
             <div className="relative w-full aspect-[4/3] rounded-lg border border-white/60 hover:border-emerald-300 transition-all cursor-pointer hover:shadow-lg shadow-sm overflow-hidden">
               <Image
@@ -323,11 +323,11 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
   const [_inviteEmail, _setInviteEmail] = useState("")
   const [_inviteMethod, _setInviteMethod] = useState<"email" | "whatsapp">("email")
   const [selectedProjectForMessage, setSelectedProjectForMessage] = useState<number | null>(null)
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
+  const [_showAttachmentMenu, _setShowAttachmentMenu] = useState(false)
   const [showWhatsAppIntegration, setShowWhatsAppIntegration] = useState(false)
-  const [showPayPalModal, setShowPayPalModal] = useState(false)
-  const [monthlyInvoiceAmount, setMonthlyInvoiceAmount] = useState(185)
-  const [isTyping, setIsTyping] = useState(false)
+  const [_showPayPalModal, _setShowPayPalModal] = useState(false)
+  const [monthlyInvoiceAmount, _setMonthlyInvoiceAmount] = useState(185)
+  const [_isTyping, _setIsTyping] = useState(false)
   const [unreadCount, setUnreadCount] = useState(3)
   const [showAddProjectModal, setShowAddProjectModal] = useState(false)
   
@@ -399,7 +399,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     return matchesSearch
   })
 
-  const markMessageAsRead = (messageId: number) => {
+  const markMessageAsRead = (_messageId: number) => {
     // In a real implementation, this would call an API to mark the message as read
     setUnreadCount((prevCount) => (prevCount > 0 ? prevCount - 1 : prevCount))
   }
@@ -434,13 +434,13 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     const phoneNumber = "+1234567890" // Admin's WhatsApp number
     const projectContext = message.projectTitle ? `[${message.projectTitle}] ` : ""
     const whatsappMessage = `${projectContext}${message.text}`
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(whatsappMessage)}`
+    const _whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(whatsappMessage)}`
 
     // In real implementation, this would use WhatsApp Business API
     console.log("Syncing to WhatsApp:", whatsappMessage)
   }
 
-  const handleWhatsAppInvite = () => {
+  const _handleWhatsAppInvite = () => {
     const inviteMessage =
       "You've been invited to collaborate on a landscape design project! Join our project dashboard: https://app.sketchupplaystore.com/invite/abc123"
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(inviteMessage)}`
@@ -453,11 +453,11 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     window.open(groupLink, "_blank")
   }
 
-  const handleAdminReply = () => {
+  const _handleAdminReply = () => {
     if (adminReply.trim()) {
       const mentions = adminReply.match(/@(\w+)/g)?.map((m) => m.substring(1)) || []
 
-      const newMessage = {
+      const _newMessage = {
         id: messages.length + 1,
         sender: "admin",
         text: adminReply,
@@ -473,13 +473,13 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     }
   }
 
-  const handleFileAttachment = (type: "image" | "pdf" | "link") => {
+  const _handleFileAttachment = (type: "image" | "pdf" | "link") => {
     // Simulate file attachment
     console.log(`Attaching ${type} file`)
-    setShowAttachmentMenu(false)
+    _setShowAttachmentMenu(false)
   }
 
-  const handleProjectReference = (projectId: number) => {
+  const _handleProjectReference = (projectId: number) => {
     setSelectedProject(projectId)
     // Scroll to project
     const projectElement = document.getElementById(`project-${projectId}`)
@@ -490,7 +490,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     setSelectedProjectForMessage(projectId)
   }
 
-  const handleDownloadFile = (file: any) => {
+  const _handleDownloadFile = (file: any) => {
     // Simulate file download
     const link = document.createElement("a")
     link.href = file.url || "/placeholder.svg"
@@ -506,7 +506,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     // In real implementation, this would create a zip file
   }
 
-  const handleWhatsAppIntegration = () => {
+  const _handleWhatsAppIntegration = () => {
     const phoneNumber = "+1234567890" // Admin's WhatsApp number
     const projectTitle = filteredProjectsList[0]?.title || "Project"
     const whatsappMessage = `Hi! I have a question about my landscape design project: ${projectTitle}`
@@ -514,19 +514,19 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     window.open(whatsappUrl, "_blank")
   }
 
-  const handleRemoveClient = (clientName: string) => {
+  const _handleRemoveClient = (clientName: string) => {
     console.log(`Removing client: ${clientName}`)
   }
 
-  const handleInviteClient = () => {
+  const _handleInviteClient = () => {
     console.log(`Inviting client via ${_inviteMethod}: ${_inviteEmail}`)
   }
 
-  const handlePayPalPayment = () => {
+  const _handlePayPalPayment = () => {
     // Simulate PayPal payment
     console.log(`Processing PayPal payment of $${monthlyInvoiceAmount}`)
     // In real implementation, this would integrate with PayPal API
-    setShowPayPalModal(false)
+    _setShowPayPalModal(false)
   }
 
   const handleSendInvoice = () => {
@@ -535,7 +535,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     // In real implementation, this would send invoice via PayPal
   }
 
-  const handleDownloadAllModels = () => {
+  const _handleDownloadAllModels = () => {
     // Get all 3D model files from all projects
     const allModels = filteredProjectsList.flatMap((project) =>
       project.files.filter(
@@ -558,7 +558,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     })
   }
 
-  const renderMessageText = (text: string, mentions: string[] = [], projectRef: number | null = null) => {
+  const _renderMessageText = (text: string, mentions: string[] = [], projectRef: number | null = null) => {
     let formattedText = text
 
     // Highlight mentions
@@ -717,12 +717,12 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
               </div>
             ) : (
               <div className="grid gap-4">
-                {filteredProjectsList.map((project, index) => (
+                {filteredProjectsList.map((project, _index) => (
                 <Card
                   key={project.id}
                   id={`project-${project.id}`}
                   className="border-white/50 bg-white/70 backdrop-blur-sm shadow-lg hover:bg-white hover:shadow-xl transition-all duration-300 hover:-translate-y-1 animate-slide-up"
-                  style={{ animationDelay: `${index * 100}ms` }}
+                  style={{ animationDelay: `${_index * 100}ms` }}
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
@@ -806,9 +806,9 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
                       <div className="mt-4 pt-4 border-t border-white/60 animate-slide-down">
                         <h4 className="font-medium mb-3 text-slate-900">Recent Updates</h4>
                         <div className="space-y-3">
-                          {project.updates.map((update, index) => (
+                          {project.updates.map((update, _index) => (
                             <div
-                              key={index}
+                              key={_index}
                               className={`flex ${update.status === "Complete" ? "justify-start" : "justify-end"}`}
                             >
                               <div
@@ -1022,7 +1022,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
                   <div className="flex gap-2">
                     <Button
                       size="sm"
-                      onClick={() => setShowPayPalModal(true)}
+                      onClick={() => _setShowPayPalModal(true)}
                       className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 h-8 flex-1 shadow-sm"
                     >
                       <DollarSign className="h-4 w-4 mr-1" />

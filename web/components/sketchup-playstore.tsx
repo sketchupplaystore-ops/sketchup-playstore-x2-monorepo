@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Image from "next/image"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -481,11 +482,12 @@ export default function SketchUpPlaystore() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredModels.map((model) => (
                   <Card key={model.id} className="glass hover-lift animate-fade-in group">
-                    <div className="relative overflow-hidden rounded-t-lg">
-                      <img
+                    <div className="relative overflow-hidden rounded-t-lg w-full h-48">
+                      <Image
                         src={model.thumbnail || "/placeholder.svg"}
                         alt={model.name}
-                        className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105"
+                        fill
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
                       />
                       <div className="absolute top-2 right-2">
                         {model.isFree ? (
@@ -560,11 +562,14 @@ export default function SketchUpPlaystore() {
                   <Card key={model.id} className="glass hover-lift animate-fade-in">
                     <CardContent className="p-6">
                       <div className="flex items-center space-x-6">
-                        <img
-                          src={model.thumbnail || "/placeholder.svg"}
-                          alt={model.name}
-                          className="w-24 h-24 object-cover rounded-lg"
-                        />
+                        <div className="relative w-24 h-24">
+                          <Image
+                            src={model.thumbnail || "/placeholder.svg"}
+                            alt={model.name}
+                            fill
+                            className="object-cover rounded-lg"
+                          />
+                        </div>
 
                         <div className="flex-1">
                           <div className="flex items-start justify-between">

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-
+import Image from "next/image"
 import { useState, useCallback, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
@@ -490,12 +490,19 @@ export function FileManager({ onBack, milestoneId, projectName = "Project Files"
                 }}
               >
                 <CardContent className="p-4">
-                  <div className="aspect-square mb-3 rounded-xl overflow-hidden bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
-                    <img
-                      src={file.thumbnail || "/placeholder.svg"}
-                      alt={file.name}
-                      className="w-full h-full object-cover"
-                    />
+                  <div className="aspect-square mb-3 rounded-xl overflow-hidden bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center relative">
+                    {file.thumbnail ? (
+                      <Image
+                        src={file.thumbnail}
+                        alt={file.name}
+                        fill
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        {getFileIcon(file.type)}
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">

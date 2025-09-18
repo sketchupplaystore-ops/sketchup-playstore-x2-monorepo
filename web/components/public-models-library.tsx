@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-
+import Image from "next/image"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -656,11 +656,12 @@ export function PublicModelsLibrary({ currentUser, onNavigateHome }: PublicModel
                 >
                   {filteredModels.map((model) => (
                     <Card key={model.id} className="hover-lift">
-                      <div className="relative">
-                        <img
+                      <div className="relative w-full h-48">
+                        <Image
                           src={model.thumbnail || "/placeholder.svg"}
                           alt={model.title}
-                          className="w-full h-48 object-cover rounded-t-lg"
+                          fill
+                          className="object-cover rounded-t-lg"
                         />
                         <Badge className="absolute top-2 right-2 bg-emerald-600">{model.format}</Badge>
                       </div>
