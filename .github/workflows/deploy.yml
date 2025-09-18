@@ -7,78 +7,132 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with:
+          node-version: 20
 
-      - name: Install pnpm
+      - name: Setup PNPM
         uses: pnpm/action-setup@v2
-        with: { version: 9 }
+        with:
+          version: 9
+          run_install: false
 
+      # ---------- BUILD IN web/ ----------
       - name: Build web
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+          # pack minimal runtime bundle
+          tar -czf web.tgz \
+            .next/standalone \
+            .next/static \
+            public \
+            next.config.mjs \
+            package.json \
+            pnpm-lock.yaml
 
-      - name: Pack web
-        run: |
-          tar -czf web.tgz -C web .next package.json pnpm-lock.yaml public next.config.js || true
-
-      - name: Pack api (if present)
-        run: |
-          if [ -f api/composer.json ]; then
-            tar -czf api.tgz -C api . artisan composer.json composer.lock app bootstrap config database public resources routes
-          fi
-
-      - name: Upload artifacts
+      # ---------- UPLOAD AS ARTIFACT (optional; keeps a copy on Actions run) ----------
+      - name: Upload artifact (web bundle)
         uses: actions/upload-artifact@v4
         with:
-          name: bundles
-          path: |
-            web.tgz
-            api.tgz
-          if-no-files-found: ignore
+          name: web.tgz
+          path: web/web.tgz
+          if-no-files-found: error
 
-      - name: Copy bundles to server
+      # ---------- COPY TO SERVER ----------
+      - name: Copy bundle to server
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: "web.tgz,api.tgz"
-          target: "/var/www/sketchupplaystore/deploy"
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "web/web.tgz"
+          target: "${{ secrets.REMOTE_DIR }}/incoming"
 
+      # ---------- FINALIZE ON SERVER ----------
       - name: Finalize on server
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
           script: |
-            set -e
-            # Web
-            cd /var/www/sketchupplaystore
-            if [ -f deploy/web.tgz ]; then
-              tar -xzf deploy/web.tgz -C web
-              cd web
-              pnpm install --prod --frozen-lockfile || npm ci --omit=dev
-              pm2 reload /var/www/sketchupplaystore/ops/server/pm2/ecosystem.config.js --only sketch-w || pm2 restart sketch-w || true
+            set -euo pipefail
+
+            # 1) Paths
+            APP_DIR="${{ secrets.REMOTE_DIR }}"
+            RELEASES="$APP_DIR/releases"
+            INCOMING="$APP_DIR/incoming"
+            CURRENT="$APP_DIR/current"
+
+            # 2) Ensure dirs
+            mkdir -p "$RELEASES" "$INCOMING"
+
+            # 3) Name this release
+            REL="{{ github.sha }}"
+            [[ -z "$REL" || "$REL" == "{{ github.sha }}" ]] && REL="$(date +%Y%m%d%H%M%S)"
+
+            # 4) Unpack the uploaded bundle
+            mkdir -p "$RELEASES/$REL"
+            tar -xzf "$INCOMING/web.tgz" -C "$RELEASES/$REL"
+
+            # 5) Ensure Node, Corepack/PNPM, and PM2 exist
+            if ! command -v node >/dev/null 2>&1; then
+              apt-get update -y
+              apt-get install -y ca-certificates curl
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              apt-get install -y nodejs
             fi
 
-            # API
-            if [ -f /var/www/sketchupplaystore/deploy/api.tgz ]; then
-              cd /var/www/sketchupplaystore
-              tar -xzf deploy/api.tgz -C api
-              cd api
-              composer install --no-dev --prefer-dist --no-interaction
-              php artisan migrate --force || true
-              php artisan optimize
-              systemctl reload php8.3-fpm || true
+            corepack enable || true
+            corepack prepare pnpm@9 --activate || npm i -g pnpm@9
+
+            if ! command -v pm2 >/dev/null 2>&1; then
+              npm i -g pm2@latest
             fi
 
-            systemctl reload nginx || true
+            # 6) Install production deps inside release
+            cd "$RELEASES/$REL"
+            # production-only; ignore scripts for speed/safety
+            pnpm install --prod --frozen-lockfile --ignore-scripts
+
+            # 7) Activate this release
+            ln -sfn "$RELEASES/$REL" "$CURRENT"
+
+            # 8) Boot (or reload) Next server via PM2
+            #    Next standalone server entry:
+            ENTRY="$CURRENT/.next/standalone/server.js"
+
+            # create a tiny ecosystem file for reloads
+            cat > "$CURRENT/ecosystem.config.cjs" <<'EOF'
+            module.exports = {
+              apps: [{
+                name: "sketchup-web",
+                script: ".next/standalone/server.js",
+                cwd: process.cwd(),
+                env: {
+                  PORT: "3000",
+                  NODE_ENV: "production"
+                }
+              }]
+            };
+            EOF
+
+            cd "$CURRENT"
+            # reload if exists, else start
+            pm2 describe sketchup-web >/dev/null 2>&1 \
+              && pm2 reload ecosystem.config.cjs \
+              || pm2 start ecosystem.config.cjs
+
+            pm2 save
+
+            echo "✅ Deployed release $REL"
