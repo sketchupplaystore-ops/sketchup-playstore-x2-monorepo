@@ -1,0 +1,24 @@
+---
+description: Global rules for SketchUp Playstore monorepo
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# SketchUp Playstore – Cursor Rules
+
+## Project structure
+- Monorepo:
+  - `web/` → Next.js 14 (app router), Tailwind, React Query.
+  - `api/` → Laravel API.
+  - `ops/` + `.github/` → deployment and CI/CD (don’t touch unless asked).
+- **Never** rename or move folders unless requested. Keep diffs surgical.
+
+## Network & data layer
+- **All fetches go through** `web/lib/api.ts`. Don’t sprinkle `fetch()` in components.
+...
+(rest of the rules here)
+---
+description:
+globs:
+alwaysApply: true
+---

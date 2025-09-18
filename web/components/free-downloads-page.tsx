@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Image from "next/image"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -33,6 +34,19 @@ interface FreeModel {
   uploadDate: string
   tags: string[]
   author: string
+  slug?: string
+}
+
+interface CategoryData {
+  id: string
+  name: string
+  count: number
+  slug?: string
+}
+
+interface ApiResponse {
+  models: FreeModel[]
+  categories: CategoryData[]
 }
 
 const freeModels: FreeModel[] = [
@@ -303,16 +317,29 @@ const freeModels: FreeModel[] = [
   },
 ]
 
-const categories = [
-  { id: "all", name: "All Categories", icon: Grid, color: "bg-slate-100" },
-  { id: "Hardscape", name: "Hardscape", icon: Shield, color: "bg-stone-100" },
-  { id: "Outdoor Furniture", name: "Outdoor Furniture", icon: Sofa, color: "bg-amber-100" },
-  { id: "Plants & Shrubs", name: "Plants & Shrubs", icon: TreePine, color: "bg-green-100" },
-  { id: "Textures", name: "Textures", icon: Paintbrush, color: "bg-purple-100" },
-  { id: "Plugins", name: "Plugins", icon: Plug, color: "bg-blue-100" },
-  { id: "ADU", name: "ADU Plans", icon: Home, color: "bg-indigo-100" },
-  { id: "Others", name: "Others", icon: Grid, color: "bg-gray-100" },
-]
+// Map category IDs to icons
+const categoryIcons: Record<string, any> = {
+  "all": Grid,
+  "Hardscape": Shield,
+  "Outdoor Furniture": Sofa,
+  "Plants & Shrubs": TreePine,
+  "Textures": Paintbrush,
+  "Plugins": Plug,
+  "ADU": Home,
+  "Others": Grid,
+}
+
+// Map category IDs to colors
+const categoryColors: Record<string, string> = {
+  "all": "bg-slate-100",
+  "Hardscape": "bg-stone-100",
+  "Outdoor Furniture": "bg-amber-100",
+  "Plants & Shrubs": "bg-green-100",
+  "Textures": "bg-purple-100",
+  "Plugins": "bg-blue-100",
+  "ADU": "bg-indigo-100",
+  "Others": "bg-gray-100",
+}
 
 interface FreeDownloadsPageProps {
   onNavigate: (page: string) => void
@@ -321,13 +348,86 @@ interface FreeDownloadsPageProps {
 export function FreeDownloadsPage({ onNavigate }: FreeDownloadsPageProps) {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
-  const [filteredModels, setFilteredModels] = useState(freeModels)
+  const [models, setModels] = useState<FreeModel[]>([])
+  const [categories, setCategories] = useState<CategoryData[]>([])
+  const [filteredModels, setFilteredModels] = useState<FreeModel[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
+  // Fetch models from API
   useEffect(() => {
-    let filtered = freeModels
+    const fetchModels = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const response = await fetch('https://www.sketchupplaystore.com/api/public/models');
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch models: ${response.status}`);
+        }
+        
+        const data = await response.json() as ApiResponse;
+        
+        // Validate response data structure
+        if (!Array.isArray(data?.models) || !Array.isArray(data?.categories)) {
+          throw new Error('Invalid API response format');
+        }
+        
+        // Process and validate models
+        const validatedModels = data.models.map(model => ({
+          ...model,
+          // Ensure all models have required fields
+          id: model.id || `model-${Math.random().toString(36).substr(2, 9)}`,
+          name: model.name || 'Untitled Model',
+          description: model.description || 'No description available',
+          category: model.category || 'Others',
+          thumbnail: model.thumbnail || '/placeholder.svg',
+          downloadUrl: model.downloadUrl || '#',
+          fileSize: model.fileSize || 'Unknown',
+          downloads: model.downloads || 0,
+          rating: model.rating || 0,
+          uploadDate: model.uploadDate || new Date().toISOString().split('T')[0],
+          tags: Array.isArray(model.tags) ? model.tags : [],
+          author: model.author || 'Unknown Author',
+        }));
+        
+        setModels(validatedModels);
+        setCategories(data.categories);
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Error fetching models:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error');
+        setIsLoading(false);
+        
+        // Fallback to mock data if API fails
+        setModels(freeModels);
+        
+        // Create categories from mock data if needed
+        if (categories.length === 0) {
+          const uniqueCategories = Array.from(new Set(freeModels.map(model => model.category)));
+          const mockCategories: CategoryData[] = uniqueCategories.map(name => ({
+            id: name,
+            name,
+            count: freeModels.filter(model => model.category === name).length,
+            slug: name.toLowerCase().replace(/\s+/g, '-')
+          }));
+          setCategories(mockCategories);
+        }
+      }
+    };
+    
+    fetchModels();
+  }, [categories.length]);
+  
+  // Filter models based on category and search query
+  useEffect(() => {
+    if (!models.length) return;
+    
+    let filtered = models;
 
     if (selectedCategory !== "all") {
-      filtered = filtered.filter((model) => model.category === selectedCategory)
+      filtered = filtered.filter((model) => model.category === selectedCategory);
     }
 
     if (searchQuery) {
@@ -336,26 +436,53 @@ export function FreeDownloadsPage({ onNavigate }: FreeDownloadsPageProps) {
           model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           model.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
           model.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())),
-      )
+      );
     }
 
-    setFilteredModels(filtered)
-  }, [selectedCategory, searchQuery])
+    setFilteredModels(filtered);
+  }, [selectedCategory, searchQuery, models]);
 
   const handleDownload = (model: FreeModel) => {
-    // Simulate download
-    const link = document.createElement("a")
-    link.href = model.downloadUrl
-    link.download = `${model.name}.skp`
-    link.click()
-
-    // Show success message
-    alert(`Downloading ${model.name}...`)
+    if (!model?.downloadUrl) {
+      alert('Download URL not available');
+      return;
+    }
+    
+    try {
+      // Create full URL if it's not already absolute
+      const downloadUrl = model.downloadUrl.startsWith('http') 
+        ? model.downloadUrl 
+        : `https://www.sketchupplaystore.com${model.downloadUrl}`;
+      
+      // Create and click download link
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `${model.name || 'sketchup-model'}.skp`;
+      link.rel = "noopener noreferrer";
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  
+      // Show success message
+      alert(`Downloading ${model.name}...`);
+    } catch (err) {
+      console.error('Download error:', err);
+      alert('Failed to download file. Please try again.');
+    }
   }
 
   const getCategoryCount = (categoryId: string) => {
-    if (categoryId === "all") return freeModels.length
-    return freeModels.filter((model) => model.category === categoryId).length
+    if (categoryId === "all") return models.length;
+    
+    // Try to find the category in the API response first
+    const category = categories.find(cat => cat.id === categoryId);
+    if (category && typeof category.count === 'number') {
+      return category.count;
+    }
+    
+    // Fallback to counting models
+    return models.filter((model) => model.category === categoryId).length;
   }
 
   return (
@@ -423,7 +550,7 @@ export function FreeDownloadsPage({ onNavigate }: FreeDownloadsPageProps) {
           <div className="flex flex-wrap justify-center gap-4 mb-8">
             <Badge variant="outline" className="px-4 py-2 text-sm">
               <Download className="w-4 h-4 mr-2" />
-              {freeModels.length} Free Models
+              {models.length} Free Models
             </Badge>
             <Badge variant="outline" className="px-4 py-2 text-sm">
               <Star className="w-4 h-4 mr-2" />
@@ -439,9 +566,25 @@ export function FreeDownloadsPage({ onNavigate }: FreeDownloadsPageProps) {
         {/* Category Filter */}
         <div className="mb-8">
           <div className="flex flex-wrap gap-3 justify-center">
+            {/* Always include "All Categories" option */}
+            <Button
+              key="all"
+              variant={selectedCategory === "all" ? "default" : "outline"}
+              className={`gap-2 ${selectedCategory === "all" ? "bg-emerald-600 text-white" : "hover:bg-emerald-50"}`}
+              onClick={() => setSelectedCategory("all")}
+            >
+              <Grid className="w-4 h-4" />
+              All Categories
+              <Badge variant="secondary" className="text-xs ml-1">
+                {models.length}
+              </Badge>
+            </Button>
+            
+            {/* Map through API categories */}
             {categories.map((category) => {
-              const Icon = category.icon
-              const count = getCategoryCount(category.id)
+              // Get icon from mapping or fallback to Grid
+              const Icon = categoryIcons[category.id] || Grid;
+              const count = category.count || getCategoryCount(category.id);
               return (
                 <Button
                   key={category.id}
@@ -460,68 +603,115 @@ export function FreeDownloadsPage({ onNavigate }: FreeDownloadsPageProps) {
           </div>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="w-16 h-16 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-4"></div>
+            <p className="text-lg text-emerald-700 font-medium">Loading models...</p>
+          </div>
+        )}
+        
+        {/* Error State */}
+        {error && !isLoading && (
+          <div className="text-center py-12 bg-red-50 rounded-xl border border-red-200">
+            <p className="text-lg text-red-700 font-medium mb-2">Error loading models</p>
+            <p className="text-sm text-red-600">{error}</p>
+            <Button 
+              onClick={() => window.location.reload()} 
+              className="mt-4 bg-red-600 hover:bg-red-700"
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+        
         {/* Models Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredModels.map((model) => (
-            <Card key={model.id} className="glass hover-lift animate-fade-in group">
-              <div className="relative overflow-hidden rounded-t-lg">
-                <img
-                  src={model.thumbnail || "/placeholder.svg"}
-                  alt={model.name}
-                  className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-                <div className="absolute top-2 right-2">
-                  <Badge className="bg-green-500 text-white">Free</Badge>
-                </div>
-                <div className="absolute top-2 left-2">
-                  <Badge className="bg-blue-500 text-white text-xs">{model.category}</Badge>
-                </div>
-              </div>
-
-              <CardHeader>
-                <CardTitle className="text-lg">{model.name}</CardTitle>
-                <CardDescription>{model.description}</CardDescription>
-              </CardHeader>
-
-              <CardContent>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-4 text-sm text-gray-500">
-                    <div className="flex items-center">
-                      <Star className="w-4 h-4 text-yellow-400 mr-1" />
-                      {model.rating}
-                    </div>
-                    <div className="flex items-center">
-                      <Download className="w-4 h-4 mr-1" />
-                      {model.downloads}
-                    </div>
-                    <div className="flex items-center">
-                      <Eye className="w-4 h-4 mr-1" />
-                      {model.fileSize}
-                    </div>
+        {!isLoading && !error && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredModels.map((model) => (
+              <Card key={model.id} className="glass hover-lift animate-fade-in group cursor-pointer" 
+                onClick={() => {
+                  // Navigate to model detail page using slug or id
+                  const modelSlug = model.slug || model.id;
+                  window.open(`https://www.sketchupplaystore.com/models/${modelSlug}`, '_blank');
+                }}
+              >
+                <div className="relative overflow-hidden rounded-t-lg">
+                  <Image
+                    src={model.thumbnail 
+                      ? (model.thumbnail.startsWith('http') 
+                        ? model.thumbnail 
+                        : `https://www.sketchupplaystore.com${model.thumbnail}`)
+                      : '/placeholder.svg'
+                    }
+                    alt={model.name || 'SketchUp Model'}
+                    width={400}
+                    height={192}
+                    className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105"
+                    onError={(e) => {
+                      // Fallback to placeholder if image fails to load
+                      (e.target as HTMLImageElement).src = '/placeholder.svg';
+                    }}
+                  />
+                  <div className="absolute top-2 right-2">
+                    <Badge className="bg-green-500 text-white">Free</Badge>
+                  </div>
+                  <div className="absolute top-2 left-2">
+                    <Badge className="bg-blue-500 text-white text-xs">{model.category}</Badge>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-1 mb-4">
-                  {model.tags.slice(0, 3).map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
+                <CardHeader>
+                  <CardTitle className="text-lg">{model.name}</CardTitle>
+                  <CardDescription>{model.description}</CardDescription>
+                </CardHeader>
 
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">by {model.author}</span>
-                  <Button onClick={() => handleDownload(model)} className="bg-emerald-600 hover:bg-emerald-700">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                <CardContent>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-4 text-sm text-gray-500">
+                      <div className="flex items-center">
+                        <Star className="w-4 h-4 text-yellow-400 mr-1" />
+                        {model.rating}
+                      </div>
+                      <div className="flex items-center">
+                        <Download className="w-4 h-4 mr-1" />
+                        {model.downloads}
+                      </div>
+                      <div className="flex items-center">
+                        <Eye className="w-4 h-4 mr-1" />
+                        {model.fileSize}
+                      </div>
+                    </div>
+                  </div>
 
-        {filteredModels.length === 0 && (
+                  <div className="flex flex-wrap gap-1 mb-4">
+                    {model.tags.slice(0, 3).map((tag) => (
+                      <Badge key={tag} variant="outline" className="text-xs">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-500">by {model.author}</span>
+                    <Button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownload(model);
+                      }} 
+                      className="bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Download
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {!isLoading && !error && filteredModels.length === 0 && (
           <div className="text-center py-12">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Search className="w-8 h-8 text-gray-400" />
@@ -546,5 +736,8 @@ export function FreeDownloadsPage({ onNavigate }: FreeDownloadsPageProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }
+
+// Add default export for better compatibility
+export default FreeDownloadsPage;

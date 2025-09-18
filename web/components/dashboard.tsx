@@ -154,7 +154,7 @@ export function Dashboard() {
   }
 
   if (currentUser?.role === "designer") {
-    return <DesignerPage onNavigate={handleNavigate} onRoleSwitch={handleRoleSwitch} onLogout={handleLogout} />
+    return <DesignerPage />
   }
 
   if (currentUser?.role === "client") {

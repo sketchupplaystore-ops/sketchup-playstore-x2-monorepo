@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
+import { useMilestoneFiles, formatFileSize } from "@/lib/hooks"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { api, type Project, type Message, type CreateMessageInput, type Milestone } from "@/lib/api"
 import {
   Search,
   User,
@@ -30,136 +33,256 @@ import {
 } from "lucide-react"
 import { DarkModeToggle } from "@/components/dark-mode-toggle"
 
-const mockClientProjects = [
-  {
-    id: 1,
-    title: "123 Oak Street, Beverly Hills, CA",
-    status: "In Progress",
-    dueDate: "2024-02-15",
-    progress: 65,
-    currentPhase: "3D Design",
-    urgent: false,
-    files: [
-      { name: "site-photos.jpg", type: "image", size: "2.4 MB", phase: "Initial", url: "/site-analysis-document.jpg" },
-      { name: "requirements.pdf", type: "pdf", size: "1.1 MB", phase: "Initial", url: "/document-materials.jpg" },
-      { name: "3d-model-v1.skp", type: "sketchup", size: "8.2 MB", phase: "3D", url: "/3d-garden-model.jpg" },
-    ],
+// Define extended project type with UI-specific fields
+type UIProject = {
+  id: number;
+  title: string;
+  status: string;
+  dueDate: string;
+  progress: number;
+  currentPhase: string;
+  urgent: boolean;
+  files: UIFile[];
+  clientPricing: {
+    type3D: { selected: boolean; price: number };
+    type2D: { selected: boolean; price: number };
+  };
+  totalPrice: number;
+  startDate: string;
+  previews: UIPreview[];
+  updates: UIUpdate[];
+  clientName: string;
+};
+
+type UIFile = {
+  name: string;
+  type: string;
+  size: string;
+  phase?: string;
+  url: string;
+};
+
+type UIPreview = {
+  url: string;
+  type: string;
+  phase: string;
+};
+
+type UIUpdate = {
+  date: string;
+  phase: string;
+  note: string;
+  status: string;
+};
+
+// Function to calculate progress based on completed milestones
+const calculateProgress = (milestones: Milestone[] = []) => {
+  if (!milestones || milestones.length === 0) return 0;
+  const completedCount = milestones.filter(m => m.completed).length;
+  return Math.round((completedCount / milestones.length) * 100);
+};
+
+// Function to determine current phase based on milestones
+const determineCurrentPhase = (milestones: any[] = []) => {
+  if (!milestones || milestones.length === 0) return "Planning";
+  
+  // Find the first non-completed milestone
+  const inProgressMilestone = milestones.find(m => !m.completed);
+  if (inProgressMilestone) return inProgressMilestone.name;
+  
+  // If all completed, return the last milestone name
+  return milestones[milestones.length - 1].name;
+};
+
+// Map API projects to UI projects
+const mapApiToUiProject = (project: Project): UIProject => {
+  // Calculate progress based on milestones
+  const progress = project.progress || calculateProgress(project.milestones);
+  
+  // Determine current phase
+  const currentPhase = determineCurrentPhase(project.milestones);
+  
+  // Map files to previews based on type
+  const previews = (project.files || []).map(file => {
+    // Determine preview type based on file type
+    let previewType = "plan";
+    if (file.type.includes("image") || file.name.includes(".jpg") || file.name.includes(".png")) {
+      previewType = "render";
+    } else if (file.type.includes("sketchup") || file.name.includes(".skp")) {
+      previewType = "model";
+    }
+    
+    return {
+      url: file.url,
+      type: previewType,
+      phase: file.phase || currentPhase
+    };
+  });
+  
+  // Create updates based on milestones
+  const updates = (project.milestones || []).map(milestone => ({
+    date: new Date().toISOString().split('T')[0], // Use current date as fallback
+    phase: milestone.name,
+    note: `${milestone.name} ${milestone.completed ? 'completed' : 'in progress'}`,
+    status: milestone.completed ? 'Complete' : 'In Progress'
+  }));
+  
+  return {
+    id: project.id,
+    title: project.title,
+    status: project.status || "In Progress",
+    dueDate: project.due_date || new Date().toISOString().split('T')[0],
+    progress,
+    currentPhase,
+    urgent: false, // Default value
+    files: (project.files || []).map(file => ({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      phase: file.phase || currentPhase,
+      url: file.url
+    })),
     clientPricing: {
       type3D: { selected: true, price: 150 },
-      type2D: { selected: false, price: 35 },
+      type2D: { selected: false, price: 35 }
     },
-    totalPrice: 150,
-    startDate: "2024-01-10",
-    previews: [
-      { url: "/landscape-render.jpg", type: "render", phase: "3D Design" },
-      { url: "/3d-garden-model.jpg", type: "model", phase: "3D Design" },
+    totalPrice: project.budget || 150,
+    startDate: new Date().toISOString().split('T')[0], // Default to current date
+    previews: previews.length > 0 ? previews : [
+      { url: "/landscape-render.jpg", type: "render", phase: currentPhase }
     ],
-    updates: [
+    updates: updates.length > 0 ? updates : [
       {
-        date: "2024-01-15",
-        phase: "Site Analysis",
-        note: "Site analysis completed, initial measurements done",
-        status: "Complete",
-      },
-      {
-        date: "2024-01-22",
-        phase: "3D Design",
-        note: "3D modeling in progress, first draft ready for review",
-        status: "In Progress",
-      },
+        date: new Date().toISOString().split('T')[0],
+        phase: currentPhase,
+        note: `Project ${currentPhase} in progress`,
+        status: "In Progress"
+      }
     ],
-    clientName: "Johnson Family",
-  },
-  {
-    id: 2,
-    title: "789 Maple Ave, Pasadena, CA",
-    status: "Under Review",
-    dueDate: "2024-01-25",
-    progress: 100,
-    currentPhase: "Final Review",
-    urgent: true,
-    files: [
-      { name: "final-render.jpg", type: "image", size: "12.1 MB", phase: "Final", url: "/landscape-render.jpg" },
-      { name: "walkthrough.mp4", type: "video", size: "45.2 MB", phase: "Final", url: "/3d-animation-preview.jpg" },
-    ],
-    clientPricing: {
-      type3D: { selected: true, price: 150 },
-      type2D: { selected: true, price: 35 },
-    },
-    totalPrice: 185,
-    startDate: "2023-12-01",
-    previews: [
-      { url: "/landscape-render.jpg", type: "render", phase: "Final Rendering" },
-      { url: "/site-analysis-document.jpg", type: "plan", phase: "2D Plans" },
-    ],
-    updates: [
-      {
-        date: "2024-01-20",
-        phase: "Final Review",
-        note: "All deliverables completed, awaiting client approval",
-        status: "Under Review",
-      },
-    ],
-    clientName: "Johnson Family",
-  },
-  {
-    id: 3,
-    title: "456 Pine Street, Santa Monica, CA",
-    status: "In Progress",
-    dueDate: "2024-03-01",
-    progress: 30,
-    currentPhase: "Site Analysis",
-    urgent: false,
-    files: [{ name: "site-survey.pdf", type: "pdf", size: "3.2 MB", phase: "Initial", url: "/document-materials.jpg" }],
-    clientPricing: {
-      type3D: { selected: true, price: 150 },
-      type2D: { selected: false, price: 35 },
-    },
-    totalPrice: 150,
-    startDate: "2024-02-01",
-    previews: [{ url: "/site-analysis-document.jpg", type: "plan", phase: "Site Analysis" }],
-    updates: [
-      {
-        date: "2024-02-05",
-        phase: "Site Analysis",
-        note: "Initial site survey completed, soil analysis in progress",
-        status: "In Progress",
-      },
-    ],
-    clientName: "Johnson Family",
-  },
-  {
-    id: 4,
-    title: "321 Elm Drive, Beverly Hills, CA",
-    status: "Completed",
-    dueDate: "2024-01-15",
-    progress: 100,
-    currentPhase: "Delivered",
-    urgent: false,
-    files: [
-      { name: "final-package.zip", type: "archive", size: "125 MB", phase: "Final", url: "/landscape-render.jpg" },
-    ],
-    clientPricing: {
-      type3D: { selected: true, price: 150 },
-      type2D: { selected: true, price: 35 },
-    },
-    totalPrice: 185,
-    startDate: "2023-11-15",
-    previews: [
-      { url: "/landscape-render.jpg", type: "render", phase: "Final Rendering" },
-      { url: "/3d-garden-model.jpg", type: "model", phase: "3D Design" },
-    ],
-    updates: [
-      {
-        date: "2024-01-15",
-        phase: "Final Delivery",
-        note: "All project deliverables completed and delivered to client",
-        status: "Completed",
-      },
-    ],
-    clientName: "Johnson Family",
-  },
-]
+    clientName: project.client_name || "Johnson Family"
+  };
+};
+
+// Component to display project files
+interface ProjectFilesProps {
+  projectId: number;
+  milestoneId?: number | string;
+}
+
+// Component to display preview images
+interface PreviewImagesSectionProps {
+  projectId: number;
+  milestoneId?: number | string;
+}
+
+function ProjectFiles({ projectId, milestoneId }: ProjectFilesProps) {
+  const { data: files = [], isLoading, isError } = useMilestoneFiles(milestoneId);
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mr-2"></div>
+        <span className="text-sm text-emerald-600">Loading files...</span>
+      </div>
+    );
+  }
+  
+  if (isError) {
+    return (
+      <div className="text-center py-4">
+        <p className="text-sm text-red-600">Failed to load files</p>
+      </div>
+    );
+  }
+  
+  if (files.length === 0) {
+    return (
+      <div className="text-center py-4">
+        <p className="text-sm text-slate-500">No files available yet</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-2">
+      {files.map(file => (
+        <div key={file.id} className="flex items-center gap-2 p-2 bg-white/80 rounded-lg border border-slate-200 hover:shadow-sm transition-all duration-200">
+          <FileText className="h-4 w-4 text-slate-600" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
+            <p className="text-xs text-slate-500">{formatFileSize(file.size)}</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.open(file.url, "_blank")}
+            className="h-7 w-7 p-0 rounded-lg"
+          >
+            <Download className="h-3 w-3" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PreviewImagesSection({ projectId, milestoneId }: PreviewImagesSectionProps) {
+  const { data: files = [], isLoading, isError } = useMilestoneFiles(milestoneId);
+  
+  // Filter for image files only
+  const imageFiles = files.filter(file => 
+    file.content_type.includes('image') || 
+    file.name.toLowerCase().includes('.jpg') || 
+    file.name.toLowerCase().includes('.png') || 
+    file.name.toLowerCase().includes('.jpeg')
+  );
+  
+  if (isLoading) {
+    return (
+      <div className="mb-4">
+        <h4 className="text-sm font-medium text-slate-700 mb-3">Project Previews</h4>
+        <div className="flex items-center justify-center py-4">
+          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mr-2"></div>
+          <span className="text-sm text-emerald-600">Loading previews...</span>
+        </div>
+      </div>
+    );
+  }
+  
+  if (isError) {
+    return null;
+  }
+  
+  if (imageFiles.length === 0) {
+    return null;
+  }
+  
+  return (
+    <div className="mb-4">
+      <h4 className="text-sm font-medium text-slate-700 mb-3">Project Previews</h4>
+      <div className="grid grid-cols-4 gap-3">
+        {imageFiles.map((file, index) => (
+          <div key={file.id} className="relative group">
+            <img
+              src={file.url || "/placeholder.svg"}
+              alt={file.name}
+              className="w-full aspect-[4/3] object-cover rounded-lg border border-white/60 hover:border-emerald-300 transition-all cursor-pointer hover:shadow-lg shadow-sm"
+              onClick={() => window.open(file.url, "_blank")}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent group-hover:from-black/40 transition-all rounded-lg flex items-center justify-center">
+              <Download className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+            </div>
+            <div className="absolute bottom-2 left-2 right-2">
+              <div className="bg-white/95 backdrop-blur-sm rounded px-2 py-1 text-xs font-medium text-slate-700 truncate opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">
+                {file.name}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -185,6 +308,7 @@ interface ClientPageProps {
 }
 
 export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPageProps) {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedProject, setSelectedProject] = useState<number | null>(null)
   const [message, setMessage] = useState("")
@@ -200,6 +324,12 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
   const [isTyping, setIsTyping] = useState(false)
   const [unreadCount, setUnreadCount] = useState(3)
   const [showAddProjectModal, setShowAddProjectModal] = useState(false)
+  
+  // Fetch client projects from API
+  const { data: apiProjects = [], isLoading: isLoadingProjects } = useQuery({
+    queryKey: ["clientProjects"],
+    queryFn: api.listByClient,
+  })
   const [newProject, setNewProject] = useState({
     title: "",
     location: "",
@@ -219,106 +349,77 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
     needsHOA: false,
     needsPermit: false,
   })
+  
+  // Map API projects to UI projects
+  const projects: UIProject[] = apiProjects.map(mapApiToUiProject);
+  
+  // Set up messages query for selected project
+  const { data: apiMessages = [], isLoading: isLoadingMessages } = useQuery({
+    queryKey: ["projectMessages", selectedProject],
+    queryFn: () => selectedProject ? api.listMessages(selectedProject) : Promise.resolve([]),
+    enabled: !!selectedProject,
+  })
+  
+  // Create message mutation
+  const createMessageMutation = useMutation({
+    mutationFn: (input: CreateMessageInput) => api.createMessage(input),
+    onSuccess: () => {
+      // Invalidate messages query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["projectMessages", selectedProject] })
+    },
+  })
+  
+  // Format API messages to UI format
+  const messages = apiMessages.map(msg => ({
+    id: msg.id,
+    sender: msg.sender_type,
+    senderName: msg.sender_name,
+    text: msg.text,
+    time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    isAdmin: msg.sender_type === 'admin',
+    mentions: msg.mentions || [],
+    projectRef: msg.project_id,
+    projectTitle: projects.find(p => p.id === msg.project_id)?.title || '',
+    status: msg.status || 'read',
+    whatsappSync: true,
+  }));
 
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: "client",
-      senderName: "John Smith",
-      text: "Hi @admin, I have some questions about the design progress for #123-oak-street.",
-      time: "10:30 AM",
-      isAdmin: false,
-      mentions: ["admin"],
-      projectRef: 1,
-      projectTitle: "123 Oak Street, Beverly Hills, CA",
-      status: "read",
-      whatsappSync: true,
-    },
-    {
-      id: 2,
-      sender: "admin",
-      senderName: "Sarah (Admin)",
-      text: "Hello @john! I'd be happy to help. The 3D rendering is 65% complete and should be ready by tomorrow.",
-      time: "10:35 AM",
-      isAdmin: true,
-      mentions: ["john"],
-      projectRef: 1,
-      projectTitle: "123 Oak Street, Beverly Hills, CA",
-      status: "read",
-      whatsappSync: true,
-    },
-    {
-      id: 3,
-      sender: "designer",
-      senderName: "Mike (Designer)",
-      text: "I've uploaded the latest 3D model for #123-oak-street. Please review the plant selections in the front yard area.",
-      time: "11:15 AM",
-      isAdmin: false,
-      mentions: [],
-      projectRef: 1,
-      projectTitle: "123 Oak Street, Beverly Hills, CA",
-      status: "unread",
-      whatsappSync: false,
-      attachments: [{ type: "sketchup", name: "front-yard-v2.skp", size: "12.4 MB" }],
-    },
-    {
-      id: 4,
-      sender: "admin",
-      senderName: "Sarah (Admin)",
-      text: "Great work @mike! @john, please check the new model and let us know your thoughts.",
-      time: "11:20 AM",
-      isAdmin: true,
-      mentions: ["mike", "john"],
-      projectRef: 1,
-      projectTitle: "123 Oak Street, Beverly Hills, CA",
-      status: "unread",
-      whatsappSync: true,
-    },
-  ])
-
-  const [filteredProjects, setFilteredProjects] = useState(mockClientProjects)
   const [newMessage, setNewMessage] = useState("")
-  const [selectedMessageProject, setSelectedMessageProject] = useState<number | null>(null)
-  const [projects, setProjects] = useState(mockClientProjects)
   const [searchTerm, setSearchTerm] = useState("")
-
-  const markMessageAsRead = (messageId: number) => {
-    setMessages((prevMessages) =>
-      prevMessages.map((message) => (message.id === messageId ? { ...message, read: true } : message)),
-    )
-    setUnreadCount((prevCount) => (prevCount > 0 ? prevCount - 1 : prevCount))
-  }
-
-  const filteredProjectsList = mockClientProjects.filter((project) => {
-    const matchesSearch = project.title.toLowerCase().includes(searchQuery.toLowerCase())
+  
+  // Initialize filtered projects
+  const filteredProjectsList = projects.filter((project) => {
+    const matchesSearch = project.title.toLowerCase().includes(searchTerm.toLowerCase())
     return matchesSearch
   })
 
+  const markMessageAsRead = (messageId: number) => {
+    // In a real implementation, this would call an API to mark the message as read
+    setUnreadCount((prevCount) => (prevCount > 0 ? prevCount - 1 : prevCount))
+  }
+
+  // We don't need this anymore since we have the filtered list defined above
+
   const handleSendMessage = () => {
-    if (newMessage.trim() && selectedMessageProject) {
-      const mentions = newMessage.match(/@(\w+)/g)?.map((m) => m.substring(1)) || []
-      const projectRefs = newMessage.match(/#[\w-]+/g)
-
-      const newMessageObj = {
-        id: messages.length + 1,
-        sender: "client",
-        senderName: "John Smith",
+    if (newMessage.trim() && selectedProject) {
+      // Create message input for API
+      const messageInput: CreateMessageInput = {
+        project_id: selectedProject,
         text: newMessage,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        isAdmin: false,
-        mentions,
-        projectRef: selectedMessageProject,
-        projectTitle: projects.find((p) => p.id === selectedMessageProject)?.title,
-        status: "sent",
-        whatsappSync: showWhatsAppIntegration,
-        attachments: [],
-      }
-      setMessages([...messages, newMessageObj])
-      setNewMessage("")
-      setSelectedMessageProject(null)
-
+      };
+      
+      // Send message using API
+      createMessageMutation.mutate(messageInput);
+      
+      // Clear input and reset selection
+      setNewMessage("");
+      
+      // Optionally sync with WhatsApp
       if (showWhatsAppIntegration) {
-        handleWhatsAppSync(newMessageObj)
+        handleWhatsAppSync({
+          text: newMessage,
+          projectTitle: projects.find((p) => p.id === selectedProject)?.title
+        });
       }
     }
   }
@@ -360,7 +461,7 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
         projectRef: selectedProjectForMessage,
         attachments: [],
       }
-      setMessages([...messages, newMessage])
+      setMessage("")  // Clear the message input after sending
       setAdminReply("")
       setSelectedProjectForMessage(null)
     }
@@ -463,7 +564,8 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
     })
 
     if (projectRef) {
-      const project = mockClientProjects.find((p) => p.id === projectRef)
+      // TODO: Replace with actual projects data source - using apiProjects for now
+      const project = apiProjects.find((p: any) => p.id === projectRef)
       if (project) {
         const projectHash = `#${project.title
           .toLowerCase()
@@ -594,8 +696,22 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
       <div className="flex max-w-7xl mx-auto">
         <main className="flex-1 p-6">
           <div className="space-y-4">
-            <div className="grid gap-4">
-              {filteredProjectsList.map((project, index) => (
+            {isLoadingProjects ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mr-3"></div>
+                <span className="text-slate-600">Loading your projects...</span>
+              </div>
+            ) : filteredProjectsList.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-slate-100 to-slate-200 mx-auto mb-4">
+                  <FileText className="h-8 w-8 text-slate-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-700 mb-2">No Projects Found</h3>
+                <p className="text-slate-500">We couldn&apos;t find any projects matching your search.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {filteredProjectsList.map((project, index) => (
                 <Card
                   key={project.id}
                   id={`project-${project.id}`}
@@ -649,33 +765,8 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
                       </div>
                     </div>
 
-                    {project.previews && project.previews.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="text-sm font-medium text-slate-700 mb-3">Project Previews</h4>
-                        <div className="grid grid-cols-4 gap-3">
-                          {project.previews.map((preview, index) => (
-                            <div key={index} className="relative group">
-                              <img
-                                src={preview.url || "/placeholder.svg"}
-                                alt={`Preview ${index + 1}`}
-                                className="w-full aspect-[4/3] object-cover rounded-lg border border-white/60 hover:border-emerald-300 transition-all cursor-pointer hover:shadow-lg shadow-sm"
-                                onClick={() =>
-                                  handleDownloadFile({ name: `preview-${index + 1}.jpg`, url: preview.url })
-                                }
-                              />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent group-hover:from-black/40 transition-all rounded-lg flex items-center justify-center">
-                                <Download className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
-                              </div>
-                              <div className="absolute bottom-2 left-2 right-2">
-                                <div className="bg-white/95 backdrop-blur-sm rounded px-2 py-1 text-xs font-medium text-slate-700 truncate opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">
-                                  {preview.phase}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {/* Preview Images Section */}
+                    <PreviewImagesSection projectId={project.id} milestoneId={project.milestones?.[0]?.id} />
 
                     <div className="mb-4">
                       <div className="flex items-center justify-between mb-3">
@@ -688,18 +779,22 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
                       <Progress value={project.progress} className="h-3 bg-slate-100/80" />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2 text-sm text-slate-600">
                         <div className="flex items-center gap-1">
                           <FileText className="h-4 w-4" />
-                          <span className="font-medium">{project.files.length}</span>
-                          <span>files available</span>
+                          <span>Project Files</span>
                         </div>
                       </div>
                       <div className="text-xs text-slate-500">
                         Started {new Date(project.startDate).toLocaleDateString()}
                       </div>
                     </div>
+                    
+                    <ProjectFiles 
+                      projectId={project.id}
+                      milestoneId={project.milestones?.[0]?.id}
+                    />
 
                     {selectedProject === project.id && (
                       <div className="mt-4 pt-4 border-t border-white/60 animate-slide-down">
@@ -730,7 +825,8 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
                   </CardContent>
                 </Card>
               ))}
-            </div>
+              </div>
+            )}
           </div>
         </main>
 
@@ -806,29 +902,40 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
               )}
 
               <div className="space-y-3 mb-4 max-h-48 overflow-y-auto">
-                {messages.slice(-4).map((message) => (
-                  <div
-                    key={message.id}
-                    className={`p-3 rounded-lg cursor-pointer transition-all duration-200 hover:bg-muted/50 ${
-                      !message.read ? "bg-primary/5 border-l-2 border-primary" : "bg-muted/30"
-                    }`}
-                    onClick={() => markMessageAsRead(message.id)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-card-foreground capitalize">{message.sender}</p>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{message.text}</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{message.time}</span>
-                    </div>
+                {isLoadingMessages ? (
+                  <div className="flex items-center justify-center p-4">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-600 mr-2"></div>
+                    <span className="text-sm text-slate-600">Loading messages...</span>
                   </div>
-                ))}
+                ) : messages.length === 0 ? (
+                  <div className="text-center p-4">
+                    <p className="text-sm text-slate-500">No messages yet</p>
+                  </div>
+                ) : (
+                  messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`p-3 rounded-lg cursor-pointer transition-all duration-200 hover:bg-muted/50 ${
+                        message.status === "unread" ? "bg-primary/5 border-l-2 border-primary" : "bg-muted/30"
+                      }`}
+                      onClick={() => markMessageAsRead(message.id)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-card-foreground capitalize">{message.senderName}</p>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{message.text}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{message.time}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
               <div className="space-y-2">
                 <select
-                  value={selectedMessageProject || ""}
-                  onChange={(e) => setSelectedMessageProject(Number(e.target.value))}
+                  value={selectedProject || ""}
+                  onChange={(e) => setSelectedProject(Number(e.target.value))}
                   className="w-full p-2 text-sm border border-slate-200 rounded-lg bg-white/80 backdrop-blur-sm focus:border-emerald-400 focus:ring-emerald-400/20 transition-all duration-200"
                 >
                   <option value="">Select project to message...</option>
@@ -849,7 +956,7 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
                   />
                   <Button
                     onClick={handleSendMessage}
-                    disabled={!newMessage.trim() || !selectedMessageProject}
+                    disabled={!newMessage.trim() || !selectedProject}
                     size="sm"
                     className="px-3 transition-all duration-200 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg shadow-lg hover:shadow-xl"
                   >

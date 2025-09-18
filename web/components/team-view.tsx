@@ -182,7 +182,7 @@ export function TeamView({ onBack }: TeamViewProps) {
       <header className="border-b border-border bg-card/50 backdrop-blur-sm">
         <div className="flex h-16 items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+            <Button variant="ghost" onClick={onBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back to Dashboard
             </Button>
@@ -190,11 +190,11 @@ export function TeamView({ onBack }: TeamViewProps) {
             <h1 className="text-xl font-semibold text-balance">Team & Earnings</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+            <Button variant="outline" className="gap-2 bg-transparent">
               <Mail className="h-4 w-4" />
               Invite Member
             </Button>
-            <Button size="sm" className="gap-2">
+            <Button className="gap-2">
               <Plus className="h-4 w-4" />
               Add Team Member
             </Button>
@@ -408,7 +408,7 @@ export function TeamView({ onBack }: TeamViewProps) {
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-balance truncate">{member.name}</h3>
-                        <Badge className={getRoleColor(member.role)} size="sm">
+                        <Badge className={getRoleColor(member.role)}>
                           {member.role}
                         </Badge>
                         <div className="flex items-center gap-1 mt-1">

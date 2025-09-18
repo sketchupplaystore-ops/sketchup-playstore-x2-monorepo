@@ -1,0 +1,37 @@
+name: e2e
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      E2E_BASE_URL: https://web.sketchupplaystore.com
+      NEXT_PUBLIC_API_BASE: https://api.sketchupplaystore.com
+      # E2E_UPLOAD_FILE: /home/runner/work/sketchup-playstore-x2-monorepo/sketchup-playstore-x2-monorepo/web/tests/fixtures/sample.png
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: pnpm install
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+
+      - name: Run E2E
+        run: pnpm test:e2e
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report

@@ -2,12 +2,16 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Progress } from "@/components/ui/progress"
+import { Milestones, type _FileRecord, type CreateUploadInput } from "@/lib/api"
+import { putPresigned } from "@/lib/uploads"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,10 +36,13 @@ import {
   Trash2,
   Eye,
   FolderOpen,
+  AlertCircle,
 } from "lucide-react"
 
 interface FileManagerProps {
   onBack: () => void
+  milestoneId: number | string
+  projectName?: string
 }
 
 const mockFiles = [
@@ -135,18 +142,69 @@ const getStatusColor = (status: string) => {
   }
 }
 
-export function FileManager({ onBack }: FileManagerProps) {
+export function FileManager({ onBack, milestoneId, projectName = "Project Files" }: FileManagerProps) {
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<number[]>([])
   const [dragActive, setDragActive] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const filteredFiles = mockFiles.filter(
+  // Fetch milestone files using React Query
+  const {
+    data: files = [],
+    isLoading: isLoadingFiles,
+    isError: isErrorFiles,
+    error: filesError
+  } = useQuery({
+    queryKey: ["milestoneFiles", milestoneId],
+    queryFn: () => Milestones.listFiles(milestoneId),
+    staleTime: 1000 * 60, // 1 minute
+  })
+  
+  // Map API FileRecord to UI format
+  const mappedFiles = files.map(file => ({
+    id: file.id,
+    name: file.name,
+    type: getFileType(file.content_type),
+    size: formatFileSize(file.size),
+    project: projectName,
+    uploader: "You", // We don't have this info from API
+    uploadDate: new Date(file.created_at).toLocaleDateString(),
+    lastModified: new Date(file.updated_at).toLocaleDateString() + " " + 
+                 new Date(file.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    status: "current",
+    thumbnail: file.url,
+    url: file.url
+  }))
+  
+  // Filter files based on search query
+  const filteredFiles = mappedFiles.filter(
     (file) =>
       file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      file.project.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      file.uploader.toLowerCase().includes(searchQuery.toLowerCase()),
+      (file.project && file.project.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (file.uploader && file.uploader.toLowerCase().includes(searchQuery.toLowerCase())),
   )
+  
+  // Helper function to determine file type from content type
+  function getFileType(contentType: string): string {
+    if (contentType.includes('image')) return 'image';
+    if (contentType.includes('pdf')) return 'pdf';
+    if (contentType.includes('excel') || contentType.includes('spreadsheet')) return 'excel';
+    if (contentType.includes('video')) return 'video';
+    if (contentType.includes('sketchup') || contentType.includes('skp')) return 'sketchup';
+    return 'document';
+  }
+  
+  // Helper function to format file size
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  }
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -158,18 +216,93 @@ export function FileManager({ onBack }: FileManagerProps) {
     }
   }, [])
 
+  // Create upload mutation
+  const uploadFileMutation = useMutation({
+    mutationFn: async (file: File) => {
+      setUploadProgress(0);
+      setUploadError(null);
+      
+      try {
+        // Step 1: Get a presigned URL
+        const uploadInput: CreateUploadInput = {
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+          size: file.size
+        };
+        
+        const { uploadUrl, fileId } = await Milestones.createUpload(milestoneId, uploadInput);
+        
+        // Step 2: Upload the file to the presigned URL
+        await putPresigned(uploadUrl, file, uploadInput.contentType, setUploadProgress);
+        
+        // Step 3: Complete the upload
+        const fileRecord = await Milestones.completeUpload(milestoneId, fileId);
+        
+        // Reset progress
+        setUploadProgress(null);
+        
+        return fileRecord;
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : 'Upload failed');
+        setUploadProgress(null);
+        throw err;
+      }
+    },
+    onSuccess: () => {
+      // Invalidate queries to refresh the file list
+      queryClient.invalidateQueries({ queryKey: ["milestoneFiles", milestoneId] });
+    }
+  });
+  
+  // Handle file drop
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(false)
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      console.log("Files dropped:", e.dataTransfer.files)
+      const file = e.dataTransfer.files[0];
+      uploadFileMutation.mutate(file);
     }
-  }, [])
+  }, [uploadFileMutation]);
+  
+  // Handle file selection from input
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      uploadFileMutation.mutate(file);
+    }
+  }, [uploadFileMutation]);
 
+  // Create delete mutation
+  const deleteFileMutation = useMutation({
+    mutationFn: (fileId: number | string) => Milestones.deleteFile(milestoneId, fileId),
+    onSuccess: () => {
+      // Invalidate queries to refresh the file list
+      queryClient.invalidateQueries({ queryKey: ["milestoneFiles", milestoneId] });
+    },
+    onError: (error) => {
+      console.error("Failed to delete file:", error);
+      alert("Failed to delete file. Please try again.");
+    }
+  });
+  
+  // Handle file deletion
+  const handleDeleteFile = (fileId: number | string) => {
+    if (confirm("Are you sure you want to delete this file? This action cannot be undone.")) {
+      deleteFileMutation.mutate(fileId);
+    }
+  };
+  
+  // Copy file link to clipboard
   const copyFileLink = (fileId: number) => {
-    navigator.clipboard.writeText(`https://app.sketchup-playstore.com/files/${fileId}`)
+    const file = files.find(f => f.id === fileId);
+    if (file) {
+      navigator.clipboard.writeText(file.url);
+      alert("File link copied to clipboard!");
+    } else {
+      navigator.clipboard.writeText(`https://app.sketchup-playstore.com/files/${fileId}`);
+    }
   }
 
   return (
@@ -179,7 +312,6 @@ export function FileManager({ onBack }: FileManagerProps) {
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
-              size="sm"
               onClick={onBack}
               className="gap-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-all duration-200"
             >
@@ -197,7 +329,6 @@ export function FileManager({ onBack }: FileManagerProps) {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
               className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50 bg-white/50 backdrop-blur-sm rounded-xl transition-all duration-200"
             >
               <Filter className="h-4 w-4" />
@@ -206,7 +337,6 @@ export function FileManager({ onBack }: FileManagerProps) {
             <div className="flex items-center border border-emerald-200 rounded-xl bg-white/50 backdrop-blur-sm">
               <Button
                 variant={viewMode === "grid" ? "default" : "ghost"}
-                size="sm"
                 onClick={() => setViewMode("grid")}
                 className={`rounded-r-none ${viewMode === "grid" ? "bg-emerald-600 hover:bg-emerald-700" : "hover:bg-emerald-50"}`}
               >
@@ -214,7 +344,6 @@ export function FileManager({ onBack }: FileManagerProps) {
               </Button>
               <Button
                 variant={viewMode === "list" ? "default" : "ghost"}
-                size="sm"
                 onClick={() => setViewMode("list")}
                 className={`rounded-l-none ${viewMode === "list" ? "bg-emerald-600 hover:bg-emerald-700" : "hover:bg-emerald-50"}`}
               >
@@ -222,7 +351,6 @@ export function FileManager({ onBack }: FileManagerProps) {
               </Button>
             </div>
             <Button
-              size="sm"
               className="gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
             >
               <Upload className="h-4 w-4" />
@@ -246,7 +374,11 @@ export function FileManager({ onBack }: FileManagerProps) {
           <div className="flex items-center gap-4 text-sm text-emerald-600/70">
             <span>{filteredFiles.length} files</span>
             <span>•</span>
-            <span>{mockFiles.reduce((acc, file) => acc + Number.parseFloat(file.size), 0).toFixed(1)} MB total</span>
+            <span>
+              {files.length > 0 
+                ? formatFileSize(files.reduce((acc, file) => acc + file.size, 0)) 
+                : "0 B"} total
+            </span>
             <span>•</span>
             <span>10GB limit per project</span>
           </div>
@@ -262,23 +394,93 @@ export function FileManager({ onBack }: FileManagerProps) {
           onDrop={handleDrop}
         >
           <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center">
-              <Upload className="h-8 w-8 text-emerald-600" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2 text-emerald-900">Drop files here to upload</h3>
-            <p className="text-emerald-600/70 mb-4">
-              Drag and drop your .pln, .skp, .jpg, .png, .pdf files (up to 10GB per project)
-            </p>
-            <Button className="gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200">
-              <Upload className="h-4 w-4" />
-              Choose Files
-            </Button>
+            {uploadProgress !== null ? (
+              <div className="space-y-4">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center">
+                  <Upload className="h-8 w-8 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-emerald-900">Uploading file...</h3>
+                <Progress value={uploadProgress} className="h-2 max-w-md mx-auto" />
+                <p className="text-emerald-600 font-medium">{uploadProgress}%</p>
+              </div>
+            ) : uploadFileMutation.isError ? (
+              <div className="space-y-4">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center">
+                  <AlertCircle className="h-8 w-8 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-red-900">Upload failed</h3>
+                <p className="text-red-600/70 mb-4">
+                  {uploadError || "There was an error uploading your file. Please try again."}
+                </p>
+                <Button 
+                  onClick={() => setUploadError(null)}
+                  className="gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                >
+                  <Upload className="h-4 w-4" />
+                  Try Again
+                </Button>
+              </div>
+            ) : uploadFileMutation.isPending ? (
+              <div className="space-y-4">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center animate-pulse">
+                  <Upload className="h-8 w-8 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-emerald-900">Processing upload...</h3>
+                <p className="text-emerald-600/70 mb-4">
+                  Please wait while we process your file
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center">
+                  <Upload className="h-8 w-8 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-emerald-900">Drop files here to upload</h3>
+                <p className="text-emerald-600/70 mb-4">
+                  Drag and drop your .pln, .skp, .jpg, .png, .pdf files (up to 10GB per project)
+                </p>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <Button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                >
+                  <Upload className="h-4 w-4" />
+                  Choose Files
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
 
-        {viewMode === "grid" ? (
+        {isLoadingFiles ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="w-16 h-16 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-4"></div>
+            <p className="text-lg text-emerald-700 font-medium">Loading files...</p>
+          </div>
+        ) : isErrorFiles ? (
+          <div className="text-center py-12 bg-red-50 rounded-xl border border-red-200">
+            <p className="text-lg text-red-700 font-medium mb-2">Error loading files</p>
+            <p className="text-sm text-red-600">{filesError instanceof Error ? filesError.message : 'Unknown error'}</p>
+            <Button 
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["milestoneFiles", milestoneId] })} 
+              className="mt-4 bg-red-600 hover:bg-red-700"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredFiles.map((file, index) => (
+            {filteredFiles.length === 0 ? (
+              <div className="col-span-full text-center py-12">
+                <p className="text-lg text-slate-700 font-medium">No files found</p>
+                <p className="text-sm text-slate-500">Upload files to get started</p>
+              </div>
+            ) : filteredFiles.map((file, index) => (
               <Card
                 key={file.id}
                 className="border-emerald-200/50 bg-white/70 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300 group rounded-2xl hover:-translate-y-1"
@@ -303,7 +505,6 @@ export function FileManager({ onBack }: FileManagerProps) {
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
-                            size="sm"
                             className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-all duration-200 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg"
                           >
                             <MoreHorizontal className="h-4 w-4" />
@@ -333,7 +534,10 @@ export function FileManager({ onBack }: FileManagerProps) {
                             Open in Wasabi
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="gap-2 text-red-600 hover:bg-red-50 rounded-lg">
+                          <DropdownMenuItem 
+                            className="gap-2 text-red-600 hover:bg-red-50 rounded-lg"
+                            onClick={() => handleDeleteFile(file.id)}
+                          >
                             <Trash2 className="h-4 w-4" />
                             Delete
                           </DropdownMenuItem>
@@ -343,7 +547,7 @@ export function FileManager({ onBack }: FileManagerProps) {
 
                     <div className="flex items-center justify-between text-xs text-emerald-600/70">
                       <span>{file.size}</span>
-                      <Badge className={`${getStatusColor(file.status)} rounded-lg`} size="sm">
+                      <Badge className={`${getStatusColor(file.status)} rounded-lg`}>
                         {file.status}
                       </Badge>
                     </div>
@@ -379,7 +583,7 @@ export function FileManager({ onBack }: FileManagerProps) {
                     </div>
 
                     <div className="flex items-center gap-4 text-sm text-emerald-600/70">
-                      <Badge className={`${getStatusColor(file.status)} rounded-lg`} size="sm">
+                      <Badge className={`${getStatusColor(file.status)} rounded-lg`}>
                         {file.status}
                       </Badge>
                       <span className="w-16 text-right">{file.size}</span>
@@ -402,7 +606,6 @@ export function FileManager({ onBack }: FileManagerProps) {
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="sm"
                           className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-all duration-200"
                         >
                           <MoreHorizontal className="h-4 w-4" />
@@ -432,7 +635,10 @@ export function FileManager({ onBack }: FileManagerProps) {
                           Open in Wasabi
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="gap-2 text-red-600 hover:bg-red-50 rounded-lg">
+                        <DropdownMenuItem 
+                          className="gap-2 text-red-600 hover:bg-red-50 rounded-lg"
+                          onClick={() => handleDeleteFile(file.id)}
+                        >
                           <Trash2 className="h-4 w-4" />
                           Delete
                         </DropdownMenuItem>

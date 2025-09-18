@@ -157,7 +157,7 @@ export function ProjectDetail({ project, onBack }: ProjectDetailProps) {
       <header className="border-b border-border bg-card/50 backdrop-blur-sm">
         <div className="flex h-16 items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+            <Button variant="ghost" onClick={onBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back to Dashboard
             </Button>
@@ -168,11 +168,11 @@ export function ProjectDetail({ project, onBack }: ProjectDetailProps) {
             </Badge>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+            <Button variant="outline" className="gap-2 bg-transparent">
               <Edit className="h-4 w-4" />
               Edit Project
             </Button>
-            <Button size="sm" className="gap-2">
+            <Button className="gap-2">
               <MessageSquare className="h-4 w-4" />
               Add Comment
             </Button>
@@ -273,7 +273,7 @@ export function ProjectDetail({ project, onBack }: ProjectDetailProps) {
                           </div>
                           <div className="text-right">
                             <p className="font-semibold">${milestone.price}</p>
-                            <Badge className={getStatusColor(milestone.status)} size="sm">
+                            <Badge className={getStatusColor(milestone.status)}>
                               {milestone.status.replace("-", " ")}
                             </Badge>
                           </div>
@@ -301,7 +301,7 @@ export function ProjectDetail({ project, onBack }: ProjectDetailProps) {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg font-semibold text-balance">Project Files</CardTitle>
-                      <Button size="sm" className="gap-2">
+                      <Button className="gap-2">
                         <Upload className="h-4 w-4" />
                         Upload File
                       </Button>
@@ -328,7 +328,7 @@ export function ProjectDetail({ project, onBack }: ProjectDetailProps) {
                               </p>
                             </div>
                           </div>
-                          <Button variant="ghost" size="sm" className="gap-2">
+                          <Button variant="ghost" className="gap-2">
                             <Download className="h-4 w-4" />
                             Download
                           </Button>
@@ -449,15 +449,15 @@ export function ProjectDetail({ project, onBack }: ProjectDetailProps) {
                 <CardTitle className="text-lg font-semibold text-balance">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="outline" size="sm" className="w-full gap-2 bg-transparent">
+                <Button variant="outline" className="w-full gap-2 bg-transparent">
                   <MessageSquare className="h-4 w-4" />
                   Add Comment
                 </Button>
-                <Button variant="outline" size="sm" className="w-full gap-2 bg-transparent">
+                <Button variant="outline" className="w-full gap-2 bg-transparent">
                   <Upload className="h-4 w-4" />
                   Upload File
                 </Button>
-                <Button variant="outline" size="sm" className="w-full gap-2 bg-transparent">
+                <Button variant="outline" className="w-full gap-2 bg-transparent">
                   <Edit className="h-4 w-4" />
                   Update Status
                 </Button>

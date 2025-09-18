@@ -1,12 +1,15 @@
 "use client"
 
 import type React from "react"
+import Image from "next/image"
 import { useState } from "react"
 import { Card, CardContent, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { api, type Project, type CreateProjectInput } from "@/lib/api"
 import {
   LayoutDashboard,
   Plus,
@@ -31,49 +34,38 @@ import {
 } from "lucide-react"
 import { DarkModeToggle } from "@/components/dark-mode-toggle"
 
-const mockProjects = [
-  {
-    id: 1,
-    title: "123 Oak Street, Beverly Hills, CA",
-    address: "123 Oak Street, Beverly Hills, CA",
-    client: "Johnson Family",
-    status: "Available",
-    dueDate: "2024-02-15",
-    assignee: null,
-    progress: 0,
-    currentPhase: "Archicad",
-    files: [
-      { name: "site-photos.jpg", type: "image", size: "2.4 MB" },
-      { name: "requirements.pdf", type: "pdf", size: "1.1 MB" },
-    ],
-    budget: 15000,
-    earnings: { archicad: 2.5, sketchup: 10, rendering: 2.5 },
-    createdBy: "Admin",
-    createdAt: "2024-01-10",
-    thumbnail: "/3d-garden-model.jpg",
-  },
-  {
-    id: 2,
-    title: "456 Business Blvd, Downtown LA",
-    address: "456 Business Blvd, Downtown LA",
-    client: "TechCorp Inc",
-    status: "In Progress",
-    dueDate: "2024-02-28",
-    assignee: "Sarah Wilson",
-    progress: 35,
-    currentPhase: "SketchUp",
-    files: [
-      { name: "site-survey.pdf", type: "pdf", size: "3.2 MB" },
-      { name: "initial-concepts.jpg", type: "image", size: "4.1 MB" },
-      { name: "archicad-model.dwg", type: "file", size: "12.5 MB" },
-    ],
-    budget: 45000,
-    earnings: { archicad: 2.5, sketchup: 10, rendering: 2.5 },
-    createdBy: "Admin",
-    createdAt: "2024-01-05",
-    thumbnail: "/landscape-render.jpg",
-  },
-]
+// Extend the API Project type with UI-specific fields
+type UIProject = Project & {
+  address?: string;
+  client?: string;
+  dueDate?: string;
+  assignee?: string | null;
+  progress?: number;
+  currentPhase?: string;
+  files?: Array<{ name: string; type: string; size: string }>;
+  earnings?: { archicad: number; sketchup: number; rendering: number };
+  createdBy?: string;
+  createdAt?: string;
+  thumbnail?: string;
+};
+
+// Map API projects to UI projects with default values
+const mapApiToUiProject = (project: Project): UIProject => ({
+  ...project,
+  address: project.title,
+  client: project.client_name || "Unknown Client",
+  status: project.status || "Available",
+  dueDate: "2024-02-15", // Default or from API
+  assignee: null,
+  progress: 0,
+  currentPhase: "Archicad",
+  files: [],
+  budget: project.budget || 0,
+  earnings: { archicad: 2.5, sketchup: 10, rendering: 2.5 },
+  createdBy: "Admin",
+  createdAt: new Date().toISOString().split("T")[0],
+  thumbnail: "/3d-garden-model.jpg",
+});
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -97,11 +89,20 @@ interface AdminPageProps {
 }
 
 export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps) {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("")
   const [showNewProjectForm, setShowNewProjectForm] = useState(false)
-  const [projects, setProjects] = useState(mockProjects)
   const [isCreatingProject, setIsCreatingProject] = useState(false)
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+  
+  // Fetch projects from API
+  const { data: apiProjects = [], isLoading: isLoadingProjects } = useQuery({
+    queryKey: ["projects"],
+    queryFn: api.listProjects,
+  })
+  
+  // Map API projects to UI projects
+  const projects = apiProjects.map(mapApiToUiProject)
   const [newProject, setNewProject] = useState({
     title: "",
     address: "",
@@ -135,9 +136,31 @@ export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps
   const filteredProjects = projects.filter((project) => {
     const matchesSearch =
       project.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.address.toLowerCase().includes(searchQuery.toLowerCase())
+      (project.client ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (project.address ?? "").toLowerCase().includes(searchQuery.toLowerCase())
     return matchesSearch
+  })
+
+  // Create project mutation
+  const createProjectMutation = useMutation({
+    mutationFn: (projectData: CreateProjectInput) => api.createProject(projectData),
+    onSuccess: () => {
+      // Invalidate projects query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["projects"] })
+      setIsCreatingProject(false)
+      setShowNewProjectForm(false)
+      setShowSuccessMessage(true)
+      setNewProject({ title: "", address: "", client: "", dueDate: "", budget: "", urgent: false })
+      setUploadedFiles([])
+
+      // Hide success message after 3 seconds
+      setTimeout(() => setShowSuccessMessage(false), 3000)
+    },
+    onError: (error) => {
+      console.error("Failed to create project:", error)
+      alert("Failed to create project. Please try again.")
+      setIsCreatingProject(false)
+    }
   })
 
   const handleCreateProject = async () => {
@@ -148,40 +171,16 @@ export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps
 
     setIsCreatingProject(true)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    const projectData = {
-      id: projects.length + 1,
+    // Prepare project data for API
+    const projectInput: CreateProjectInput = {
       title: newProject.address,
-      address: newProject.address,
-      client: newProject.client,
-      status: "Available" as const,
-      dueDate: newProject.dueDate,
-      assignee: null,
-      progress: 0,
-      currentPhase: "Archicad" as const,
-      files: uploadedFiles.map((file) => ({
-        name: file.name,
-        type: file.type.includes("image") ? "image" : file.type.includes("pdf") ? "pdf" : "file",
-        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-      })),
+      client_name: newProject.client,
       budget: Number.parseInt(newProject.budget),
-      earnings: { archicad: 2.5, sketchup: 10, rendering: 2.5 },
-      createdBy: "Admin",
-      createdAt: new Date().toISOString().split("T")[0],
-      thumbnail: "/3d-garden-model.jpg",
+      // Add any other fields your API expects
     }
 
-    setProjects([projectData, ...projects])
-    setIsCreatingProject(false)
-    setShowNewProjectForm(false)
-    setShowSuccessMessage(true)
-    setNewProject({ title: "", address: "", client: "", dueDate: "", budget: "", urgent: false })
-    setUploadedFiles([])
-
-    // Hide success message after 3 seconds
-    setTimeout(() => setShowSuccessMessage(false), 3000)
+    // Submit to API
+    createProjectMutation.mutate(projectInput)
   }
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,43 +217,38 @@ export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps
   const unreadCount = messages.filter((msg) => !msg.read).length
 
   const handleCompleteProject = (projectId: number) => {
-    setProjects((prevProjects) =>
-      prevProjects.map((project) => {
-        if (project.id === projectId) {
-          const completedProject = {
-            ...project,
-            status: "Completed" as const,
-            progress: 100,
-            completedAt: new Date().toISOString(),
-          }
+    // Find the project to complete
+    const projectToComplete = projects.find(project => project.id === projectId);
+    
+    if (!projectToComplete) {
+      console.error(`Project with ID ${projectId} not found`);
+      return;
+    }
+    
+    // Create the completed project model for SketchUp Playstore
+    const playstoreModel = {
+      id: `project-${projectId}`,
+      name: `${projectToComplete.client} - ${projectToComplete.title}`,
+      description: `Complete landscape design project transformation`,
+      category: "What's New",
+      thumbnail: projectToComplete.thumbnail || "/placeholder.svg",
+      downloadUrl: `/models/project-${projectId}.skp`,
+      fileSize: "15.2 MB",
+      downloads: 0,
+      rating: 5.0,
+      uploadDate: new Date().toISOString().split("T")[0],
+      isFree: false,
+      tokenCost: 10,
+      tags: ["complete", "project", "transformation", (projectToComplete.client ?? "").toLowerCase().replace(" ", "-")],
+      author: projectToComplete.assignee || "James Wilson",
+    }
 
-          // Add to SketchUp Playstore What's New section
-          const playstoreModel = {
-            id: `project-${projectId}`,
-            name: `${project.client} - ${project.title}`,
-            description: `Complete landscape design project transformation`,
-            category: "What's New",
-            thumbnail: project.thumbnail || "/placeholder.svg",
-            downloadUrl: `/models/project-${projectId}.skp`,
-            fileSize: "15.2 MB",
-            downloads: 0,
-            rating: 5.0,
-            uploadDate: new Date().toISOString().split("T")[0],
-            isFree: false,
-            tokenCost: 10,
-            tags: ["complete", "project", "transformation", project.client.toLowerCase().replace(" ", "-")],
-            author: project.assignee || "James Wilson",
-          }
-
-          // Store in localStorage for SketchUp Playstore to access
-          const existingModels = JSON.parse(localStorage.getItem("completedProjects") || "[]")
-          localStorage.setItem("completedProjects", JSON.stringify([playstoreModel, ...existingModels]))
-
-          return completedProject
-        }
-        return project
-      }),
-    )
+    // Store in localStorage for SketchUp Playstore to access
+    const existingModels = JSON.parse(localStorage.getItem("completedProjects") || "[]")
+    localStorage.setItem("completedProjects", JSON.stringify([playstoreModel, ...existingModels]))
+    
+    // Invalidate projects query to refresh the list with updated status
+    queryClient.invalidateQueries({ queryKey: ["projects"] });
 
     // Show success message
     setShowSuccessMessage(true)
@@ -551,29 +545,53 @@ export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps
             </div>
 
             <div className="space-y-4">
-              {filteredProjects.map((project, index) => (
-                <Card
-                  key={project.id}
-                  className="border-white/50 hover:border-emerald-200 transition-all duration-300 rounded-xl overflow-hidden bg-white/80 backdrop-blur-sm hover:shadow-xl hover:shadow-emerald-500/10 hover:-translate-y-1 animate-slide-up"
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
-                  <CardContent className="p-6">
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={project.thumbnail || "/placeholder.svg"}
-                        alt={project.title}
-                        className="w-16 h-16 rounded-lg object-cover bg-muted"
-                      />
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="font-medium text-card-foreground truncate">{project.title}</h3>
-                          <Badge
-                            className={getStatusColor(project.status) + " px-2 py-1 rounded-md text-xs font-medium"}
-                          >
-                            {project.status}
-                          </Badge>
+              {isLoadingProjects ? (
+                <Card className="border-white/50 rounded-xl overflow-hidden bg-white/80 backdrop-blur-sm p-6">
+                  <div className="flex items-center justify-center h-24">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                    <span className="ml-3 text-slate-600">Loading projects...</span>
+                  </div>
+                </Card>
+              ) : filteredProjects.length === 0 ? (
+                <Card className="border-white/50 rounded-xl overflow-hidden bg-white/80 backdrop-blur-sm p-6">
+                  <div className="flex flex-col items-center justify-center h-24">
+                    <p className="text-slate-600">No projects found</p>
+                    <Button 
+                      onClick={() => setShowNewProjectForm(true)}
+                      className="mt-3 gap-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl px-4 py-2"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Create your first project
+                    </Button>
+                  </div>
+                </Card>
+              ) : (
+                filteredProjects.map((project, index) => (
+                  <Card
+                    key={project.id}
+                    className="border-white/50 hover:border-emerald-200 transition-all duration-300 rounded-xl overflow-hidden bg-white/80 backdrop-blur-sm hover:shadow-xl hover:shadow-emerald-500/10 hover:-translate-y-1 animate-slide-up"
+                    style={{ animationDelay: `${index * 100}ms` }}
+                  >
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-4">
+                        <div className="relative w-16 h-16">
+                          <Image
+                            src={project.thumbnail || "/placeholder.svg"}
+                            alt={project.title}
+                            fill
+                            className="rounded-lg object-cover bg-muted"
+                          />
                         </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="font-medium text-card-foreground truncate">{project.title}</h3>
+                            <Badge
+                              className={getStatusColor(project.status ?? "unknown") + " px-2 py-1 rounded-md text-xs font-medium"}
+                            >
+                              {project.status}
+                            </Badge>
+                          </div>
 
                         <div className="flex items-center gap-6 text-xs text-muted-foreground mb-3">
                           <span className="flex items-center gap-1">
@@ -582,7 +600,7 @@ export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {new Date(project.dueDate).toLocaleDateString()}
+                            {project.dueDate ? new Date(project.dueDate).toLocaleDateString() : "-"}
                           </span>
                           {project.assignee && (
                             <span className="flex items-center gap-1">
@@ -634,7 +652,9 @@ export function AdminPage({ onNavigate, onRoleSwitch, onLogout }: AdminPageProps
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                ))
+              )}
+            
             </div>
           </div>
 
