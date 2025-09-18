@@ -1,33 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  images: {
+    unoptimized: true,
+    // Add only domains actually used in this project
+    remotePatterns: [
+      { protocol: "https", hostname: "www.sketchupplaystore.com" },
+      { protocol: "https", hostname: "s3.us-central-1.wasabisys.com" },
+      { protocol: "https", hostname: "*.wasabisys.com" },
+    ],
+  },
+
+  // Keep existing build settings
   eslint: {
     ignoreDuringBuilds: true,
   },
   typescript: {
     ignoreBuildErrors: true,
-  },
-  images: {
-    unoptimized: true,
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'www.sketchupplaystore.com',
-        port: '',
-        pathname: '/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 's3.us-central-1.wasabisys.com',
-        port: '',
-        pathname: '/**',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.wasabisys.com',
-        port: '',
-        pathname: '/**',
-      },
-    ],
   },
   async headers() {
     return [
