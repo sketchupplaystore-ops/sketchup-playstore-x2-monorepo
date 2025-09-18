@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { useMilestoneFiles, formatFileSize } from "@/lib/hooks"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { api, type Project, type Message, type CreateMessageInput, type Milestone } from "@/lib/api"
+import { api, type Project, type CreateMessageInput, type Milestone } from "@/lib/api"
 import {
   Search,
   User,
@@ -265,12 +266,15 @@ function PreviewImagesSection({ projectId, milestoneId }: PreviewImagesSectionPr
       <div className="grid grid-cols-4 gap-3">
         {imageFiles.map((file, index) => (
           <div key={file.id} className="relative group">
-            <img
-              src={file.url || "/placeholder.svg"}
-              alt={file.name}
-              className="w-full aspect-[4/3] object-cover rounded-lg border border-white/60 hover:border-emerald-300 transition-all cursor-pointer hover:shadow-lg shadow-sm"
-              onClick={() => window.open(file.url, "_blank")}
-            />
+            <div className="relative w-full aspect-[4/3] rounded-lg border border-white/60 hover:border-emerald-300 transition-all cursor-pointer hover:shadow-lg shadow-sm overflow-hidden">
+              <Image
+                src={file.url || "/placeholder.svg"}
+                alt={file.name}
+                fill
+                className="object-cover"
+                onClick={() => window.open(file.url, "_blank")}
+              />
+            </div>
             <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent group-hover:from-black/40 transition-all rounded-lg flex items-center justify-center">
               <Download className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
             </div>
@@ -309,15 +313,15 @@ interface ClientPageProps {
   onLogout?: () => void
 }
 
-export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPageProps) {
+export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: ClientPageProps) {
   const queryClient = useQueryClient();
-  const [searchQuery, setSearchQuery] = useState("")
+  const [_searchQuery, _setSearchQuery] = useState("")
   const [selectedProject, setSelectedProject] = useState<number | null>(null)
-  const [message, setMessage] = useState("")
+  const [_message, _setMessage] = useState("")
   const [adminReply, setAdminReply] = useState("")
-  const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteMethod, setInviteMethod] = useState<"email" | "whatsapp">("email")
+  const [_showInviteModal, _setShowInviteModal] = useState(false)
+  const [_inviteEmail, _setInviteEmail] = useState("")
+  const [_inviteMethod, _setInviteMethod] = useState<"email" | "whatsapp">("email")
   const [selectedProjectForMessage, setSelectedProjectForMessage] = useState<number | null>(null)
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
   const [showWhatsAppIntegration, setShowWhatsAppIntegration] = useState(false)
@@ -463,7 +467,7 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
         projectRef: selectedProjectForMessage,
         attachments: [],
       }
-      setMessage("")  // Clear the message input after sending
+      // Message cleared after sending
       setAdminReply("")
       setSelectedProjectForMessage(null)
     }
@@ -515,7 +519,7 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
   }
 
   const handleInviteClient = () => {
-    console.log(`Inviting client via ${inviteMethod}: ${inviteEmail}`)
+    console.log(`Inviting client via ${_inviteMethod}: ${_inviteEmail}`)
   }
 
   const handlePayPalPayment = () => {
@@ -865,7 +869,7 @@ export function ClientPage({ onNavigate, onRoleSwitch, onLogout }: ClientPagePro
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowInviteModal(true)}
+                  onClick={() => _setShowInviteModal(true)}
                   className="gap-2 bg-white/50 backdrop-blur-sm border-slate-200 hover:bg-white hover:shadow-sm transition-all duration-200 rounded-xl"
                 >
                   <UserPlus className="h-4 w-4" />

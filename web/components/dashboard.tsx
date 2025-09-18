@@ -12,6 +12,13 @@ import { ModelsPage } from "./models-page"
 import { FreeDownloadsPage } from "./free-downloads-page"
 import { PublicModelsLibrary } from "./public-models-library"
 
+// User type for authentication state
+type User = {
+  role: "admin" | "designer" | "client";
+  name: string;
+  [key: string]: any; // Allow additional user properties
+};
+
 const mockProjects = [
   {
     id: 1,
@@ -79,7 +86,7 @@ const mockProjects = [
 
 export function Dashboard() {
   const [currentPage, setCurrentPage] = useState("landing")
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   const handleLogin = (role: "admin" | "designer" | "client", userData: any) => {
@@ -99,7 +106,7 @@ export function Dashboard() {
   }
 
   const handleRoleSwitch = (role: "admin" | "designer" | "client") => {
-    setCurrentUser({ ...currentUser, role })
+    setCurrentUser({ ...currentUser, role, name: currentUser?.name || "User" })
     setCurrentPage("dashboard")
   }
 
@@ -116,7 +123,7 @@ export function Dashboard() {
       setCurrentPage("public-models")
       return
     }
-    setCurrentUser({ role })
+    setCurrentUser({ role, name: "User" })
     setIsAuthenticated(true)
     setCurrentPage("dashboard")
   }
