@@ -43,6 +43,7 @@ type UIProject = {
   currentPhase: string;
   urgent: boolean;
   files: UIFile[];
+  milestones?: Milestone[];
   clientPricing: {
     type3D: { selected: boolean; price: number };
     type2D: { selected: boolean; price: number };
@@ -142,6 +143,7 @@ const mapApiToUiProject = (project: Project): UIProject => {
       phase: file.phase || currentPhase,
       url: file.url
     })),
+    milestones: project.milestones,
     clientPricing: {
       type3D: { selected: true, price: 150 },
       type2D: { selected: false, price: 35 }
