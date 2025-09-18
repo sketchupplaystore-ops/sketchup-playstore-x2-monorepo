@@ -2,7 +2,8 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -17,36 +18,37 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup PNPM
+      - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: 9
           run_install: false
 
-      # ---------- BUILD IN web/ ----------
-      - name: Build web
+      # Build in web/ just to keep CI checks green before deploying
+      - name: CI build (web)
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
-          # pack minimal runtime bundle
-          tar -czf web.tgz \
-            .next/standalone \
-            .next/static \
-            public \
-            next.config.mjs \
-            package.json \
-            pnpm-lock.yaml
 
-      # ---------- UPLOAD AS ARTIFACT (optional; keeps a copy on Actions run) ----------
-      - name: Upload artifact (web bundle)
+      # Create a small bundle to upload (optional; keeps a copy with the run)
+      - name: Pack bundle
+        working-directory: web
+        run: |
+          rm -f web.tgz
+          tar -czf web.tgz \
+            public \
+            package.json \
+            pnpm-lock.yaml \
+            next.config.mjs \
+            . # include source so server can build if needed
+
+      - name: Upload artifact (bundle)
         uses: actions/upload-artifact@v4
         with:
-          name: web.tgz
+          name: web-bundle
           path: web/web.tgz
-          if-no-files-found: error
 
-      # ---------- COPY TO SERVER ----------
       - name: Copy bundle to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -55,9 +57,8 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
           source: "web/web.tgz"
-          target: "${{ secrets.REMOTE_DIR }}/incoming"
+          target: "${{ secrets.REMOTE_DIR }}"
 
-      # ---------- FINALIZE ON SERVER ----------
       - name: Finalize on server
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -67,72 +68,33 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script: |
             set -euo pipefail
-
-            # 1) Paths
             APP_DIR="${{ secrets.REMOTE_DIR }}"
-            RELEASES="$APP_DIR/releases"
-            INCOMING="$APP_DIR/incoming"
-            CURRENT="$APP_DIR/current"
+            cd "$APP_DIR"
 
-            # 2) Ensure dirs
-            mkdir -p "$RELEASES" "$INCOMING"
+            # Unpack bundle to a temp dir and move into place
+            rm -rf tmp_release
+            mkdir -p tmp_release
+            tar -xzf web.tgz -C tmp_release
 
-            # 3) Name this release
-            REL="{{ github.sha }}"
-            [[ -z "$REL" || "$REL" == "{{ github.sha }}" ]] && REL="$(date +%Y%m%d%H%M%S)"
-
-            # 4) Unpack the uploaded bundle
-            mkdir -p "$RELEASES/$REL"
-            tar -xzf "$INCOMING/web.tgz" -C "$RELEASES/$REL"
-
-            # 5) Ensure Node, Corepack/PNPM, and PM2 exist
-            if ! command -v node >/dev/null 2>&1; then
-              apt-get update -y
-              apt-get install -y ca-certificates curl
-              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-              apt-get install -y nodejs
-            fi
-
+            # Ensure pnpm available
             corepack enable || true
             corepack prepare pnpm@9 --activate || npm i -g pnpm@9
 
-            if ! command -v pm2 >/dev/null 2>&1; then
-              npm i -g pm2@latest
+            cd tmp_release
+
+            # Install and build on the server so .next exists
+            pnpm install --frozen-lockfile
+            pnpm build
+
+            # Move into web directory (replace existing app files)
+            cd "$APP_DIR"
+            rsync -a --delete tmp_release/ "$APP_DIR/"
+
+            # Start or reload with PM2
+            if pm2 describe sketch-w >/dev/null 2>&1; then
+              pm2 restart sketch-w
+            else
+              pm2 start "pnpm start" --name sketch-w --cwd "$APP_DIR" --env production
             fi
-
-            # 6) Install production deps inside release
-            cd "$RELEASES/$REL"
-            # production-only; ignore scripts for speed/safety
-            pnpm install --prod --frozen-lockfile --ignore-scripts
-
-            # 7) Activate this release
-            ln -sfn "$RELEASES/$REL" "$CURRENT"
-
-            # 8) Boot (or reload) Next server via PM2
-            #    Next standalone server entry:
-            ENTRY="$CURRENT/.next/standalone/server.js"
-
-            # create a tiny ecosystem file for reloads
-            cat > "$CURRENT/ecosystem.config.cjs" <<'EOF'
-            module.exports = {
-              apps: [{
-                name: "sketchup-web",
-                script: ".next/standalone/server.js",
-                cwd: process.cwd(),
-                env: {
-                  PORT: "3000",
-                  NODE_ENV: "production"
-                }
-              }]
-            };
-            EOF
-
-            cd "$CURRENT"
-            # reload if exists, else start
-            pm2 describe sketchup-web >/dev/null 2>&1 \
-              && pm2 reload ecosystem.config.cjs \
-              || pm2 start ecosystem.config.cjs
-
             pm2 save
-
-            echo "✅ Deployed release $REL"
+            echo "✅ Deploy complete"
