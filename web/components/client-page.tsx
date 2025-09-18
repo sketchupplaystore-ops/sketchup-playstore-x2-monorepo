@@ -85,7 +85,7 @@ const calculateProgress = (milestones: Milestone[] = []) => {
 };
 
 // Function to determine current phase based on milestones
-const determineCurrentPhase = (milestones: any[] = []) => {
+const determineCurrentPhase = (milestones: Milestone[] = []) => {
   if (!milestones || milestones.length === 0) return "Planning";
   
   // Find the first non-completed milestone
@@ -430,7 +430,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     }
   }
 
-  const handleWhatsAppSync = (message: any) => {
+  const handleWhatsAppSync = (message: { projectTitle?: string; text: string }) => {
     const phoneNumber = "+1234567890" // Admin's WhatsApp number
     const projectContext = message.projectTitle ? `[${message.projectTitle}] ` : ""
     const whatsappMessage = `${projectContext}${message.text}`
@@ -438,6 +438,18 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
 
     // In real implementation, this would use WhatsApp Business API
     console.log("Syncing to WhatsApp:", whatsappMessage)
+  }
+
+  const handleWhatsAppSyncClick = () => {
+    // Sync the latest message or a default sync message
+    const latestMessage = messages[messages.length - 1]
+    const syncMessage = latestMessage ? latestMessage.text : "WhatsApp sync initiated"
+    const currentProject = projects.find((p) => p.id === selectedProject)
+    
+    handleWhatsAppSync({
+      text: syncMessage,
+      projectTitle: currentProject?.title
+    })
   }
 
   const _handleWhatsAppInvite = () => {
@@ -490,7 +502,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     setSelectedProjectForMessage(projectId)
   }
 
-  const _handleDownloadFile = (file: any) => {
+  const _handleDownloadFile = (file: { url?: string; name: string }) => {
     // Simulate file download
     const link = document.createElement("a")
     link.href = file.url || "/placeholder.svg"
@@ -500,7 +512,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
     document.body.removeChild(link)
   }
 
-  const handleDownloadAllFiles = (projectFiles: any[]) => {
+  const handleDownloadAllFiles = (projectFiles: { name: string; url?: string }[]) => {
     // Simulate zip download
     console.log("Downloading all files as zip:", projectFiles)
     // In real implementation, this would create a zip file
@@ -571,7 +583,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
 
     if (projectRef) {
       // TODO: Replace with actual projects data source - using apiProjects for now
-      const project = apiProjects.find((p: any) => p.id === projectRef)
+      const project = apiProjects.find((p: Project) => p.id === projectRef)
       if (project) {
         const projectHash = `#${project.title
           .toLowerCase()
@@ -897,7 +909,7 @@ export function ClientPage({ onNavigate: _onNavigate, onRoleSwitch, onLogout }: 
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleWhatsAppSync}
+                      onClick={handleWhatsAppSyncClick}
                       className="border-green-200 hover:border-green-300 h-8 flex-1 text-xs bg-white/80 backdrop-blur-sm rounded-xl transition-all duration-200"
                     >
                       <Zap className="h-3 w-3 mr-1" />
